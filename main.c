@@ -518,7 +518,7 @@ void handle_echo(char **args, t_env *env)
         printf("\n");
 }
 
-int		check_unclosed(char *line) // this still on work
+int		check_unclosed(char *line) // this still on work 
 {
 	int		s_nbr;
 	int		d_nbr;
@@ -604,13 +604,16 @@ char    *ft_getpath(t_env *env, char *str)
             return (tmp->value);
         tmp = tmp->next;
     }
-    return ("/root");
+    return ("/root"); // forcing an error (i had no other way)
 }
 
-void    handle_cd(char **split, t_env *my_env)
+void    handle_cd(char **split, t_env *my_env, t_dir *dir)
 {
-    char tmp[PATH_MAX];
+    char    buf[PATH_MAX];
+    t_env   *tmp;
+    t_env   *smp;
 
+    tmp = my_env;
     if (!split[1] || (split[1] && split[1] == "~"))
     {
         if (chdir(ft_getpath(my_env, "HOME")) == -1)
@@ -620,7 +623,25 @@ void    handle_cd(char **split, t_env *my_env)
             else if (access(ft_getpath(my_env, "HOME"), X_OK) == -1)
                 printf("cd: permission denied\n");
         }
-        getcwd(tmp, sizeof(tmp));
+        getcwd(buf, sizeof(buf));
+
+
+        while (tmp)
+        {
+            if (!ft_strcmp(tmp->var, "PWD"))
+                smp = tmp->value;
+            if (!ft_strcmp(tmp->var, "OLDPWD"))
+            {
+                if (tmp->value)
+                    free (tmp->value);
+                tmp->value = ft_strdup(smp);
+                free(smp);
+                break;
+            }
+            tmp = tmp->next;
+        }
+        dir->oldir = dir->dir;
+        dir->dir = buf;
         // update the env
 
     }
@@ -649,6 +670,44 @@ int    check_existant(t_env *my_env, char *str)
     if (str_value)
         free(str_value);
     return(1);
+}
+
+void    tilda_remod(char **argvs, t_dir dir)
+{
+    int     i;
+    char    *tmp;
+
+    i = 0;
+    while (argvs[i])
+    {
+        if (argvs[i][0] == '~' && (!argvs[i][1] || argvs[i][1] == '/'))
+        {
+            tmp = malloc(strlen(dir.home) + strlen(argvs[i]) + 1);
+            if (!tmp)
+            {
+                perror("malloc");
+                return ;
+            }
+            strcpy(tmp, dir.home);
+            strcat(tmp, argvs[i] + 1);
+            free(argvs[i]);
+            argvs[i] = ft_strdup(tmp);
+            free(tmp);
+        }
+        else if (argvs[i][0] == '~' && argvs[i][1] != '/')
+        {
+            tmp = malloc(strlen("/home/") + strlen(argvs[i]) + 1);
+            strcpy(tmp, "/home/");
+            strcat(tmp, argvs[i] + 1);
+            if (access(tmp, F_OK) == 0)
+            {
+                free(argvs[i]);
+                argvs[i] = ft_strdup(tmp);
+                free(tmp);
+            }
+        }
+        i++;
+    }
 }
 
 int    main(int ac, char **av, char **env)
@@ -693,6 +752,9 @@ int    main(int ac, char **av, char **env)
             continue;
         }
 
+        // handle the glorious tilde
+        tilda_remod(split, directory);
+
 		// this to check for unclosed quotes
 		i = 0;
 		while (split[i])
@@ -734,7 +796,12 @@ int    main(int ac, char **av, char **env)
 		if (!ft_strcmp(split[0], "unset"))
 		{
 			if (!split[1])
+			{
+                add_history(line);
+                free(line);
+                free_array(split);
 				continue;
+            }
 			my_env = clear_node(my_env, split[1]);
 		}
 
