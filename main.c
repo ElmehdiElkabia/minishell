@@ -3,6 +3,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <dirent.h>
+#include <linux/limits.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 
@@ -249,30 +251,6 @@ void	ft_lstadd_back(t_env **lst, t_env *new)
 	}
 }
 
-char	*my_strdup(const char *s1, char c)
-{
-	char	*t1;
-	int		i;
-	int		size;
-
-	size = 0;
-	if (!s1)
-		return (NULL);
-	while (s1[size] && s1[size] != c)
-		size++;
-	t1 = malloc((size + 1) * sizeof(char));
-	if (!t1)
-		return (NULL);
-	i = 0;
-	while (i < size)
-	{
-		t1[i] = s1[i];
-		i++;
-	}
-	t1[i] = '\0';
-	return (t1);
-}
-
 char	*ft_substr(char const *s, unsigned int start, size_t len)
 {
 	size_t		i;
@@ -309,12 +287,7 @@ t_env *create_node(char *line)
         free(new_node);
         return NULL;
     }
-    if (!strchr(line, '='))
-    {
-        new_node->var = ft_strdup(line);
-        new_node->value = ft_strdup("");
-    }
-    else
+    if (strchr(line, '='))
     {
         new_node->var = ft_substr(line, 0, strchr(line, '=') - line);
         new_node->value = ft_strdup(strchr(line, '=') + 1);
@@ -332,17 +305,21 @@ t_env *create_node(char *line)
 
 t_env *create_env(char **envp)
 {
-    int i;
-    t_env *lst;
-    t_env *current;
-	t_env *new_node;
+    int     i;
+    int     flag;
+    t_env   *lst;
+    t_env   *current;
+	t_env   *new_node;
 
 	i = 0;
+    flag = 0;
 	lst = NULL;
     if (!envp)
         return (NULL);
     while (envp[i])
     {
+        if (strstr(envp[i], "HOME="))
+            flag = 1;
         new_node = create_node(envp[i]);
         if (!new_node)
         {
@@ -361,6 +338,25 @@ t_env *create_env(char **envp)
             current = current->next;
         }
         i++;
+    }
+    if (flag == 0)
+    {
+        new_node = create_node("HOME=/home/izahr");
+        if (!new_node)
+        {
+            printf("Warning: Failed to create environment node for: %s\n", envp[i]);
+            i++;
+        }
+        if (!lst)
+        {
+            lst = new_node;
+            current = lst;
+        }
+        else
+        {
+            current->next = new_node;
+            current = current->next;
+        }
     }
     return (lst);
 }
@@ -563,30 +559,96 @@ typedef struct s_dir
 {
     char    *oldir;
     char    *dir;
+    char    *home;
 }           t_dir;
 
 void    update_directory(t_dir *dir, t_env *my_env)
 {
-    t_env *tmp;
+    t_env   *tmp;
+    char    buf[PATH_MAX];
 
     if (!my_env)
         printf("FATAL ERROR: Environement Not Found ...\n");
     else
     {
         tmp = my_env;
+        getcwd(buf, sizeof(buf));
         while (tmp)
         {
             if (!ft_strcmp(tmp->var, "PWD"))
                 dir->dir = ft_strdup(tmp->value);
             if (!ft_strcmp(tmp->var, "OLDPWD"))
                 dir->oldir = ft_strdup(tmp->value);
+            if (!ft_strcmp(tmp->var, "HOME"))
+                dir->home = ft_strdup(tmp->value);
             tmp = tmp->next;
         }
         if (!dir->dir)
-            dir->dir = ft_strdup("NOT FOUND");
+            dir->dir = ft_strdup(buf);
         if (!dir->oldir)
-            dir->oldir = ft_strdup("NOT FOUND");
+            dir->oldir = ft_strdup(buf);
     }
+}
+
+char    *ft_getpath(t_env *env, char *str)
+{
+    t_env *tmp;
+    char *str_key;
+    char *str_value;
+
+    tmp = env;
+    str_value = str;
+    while (tmp)
+    {
+        if (!ft_strcmp(tmp->var, str))
+            return (tmp->value);
+        tmp = tmp->next;
+    }
+    return ("/root");
+}
+
+void    handle_cd(char **split, t_env *my_env)
+{
+    char tmp[PATH_MAX];
+
+    if (!split[1] || (split[1] && split[1] == "~"))
+    {
+        if (chdir(ft_getpath(my_env, "HOME")) == -1)
+        {
+            if (access(ft_getpath(my_env, "HOME"), W_OK | R_OK) == -1)
+                printf("cd: no such file or directory\n");
+            else if (access(ft_getpath(my_env, "HOME"), X_OK) == -1)
+                printf("cd: permission denied\n");
+        }
+        getcwd(tmp, sizeof(tmp));
+        // update the env
+
+    }
+}
+
+int    check_existant(t_env *my_env, char *str)
+{
+    t_env   *tmp;
+    char    *str_key;
+    char    *str_value;
+
+    tmp = my_env;
+    str_key = ft_substr(str, 0, strchr(str, '=') - str);
+    str_value = ft_strdup(strchr(str, '=') + 1);
+    while (tmp)
+    {
+        if (!ft_strcmp(tmp->var, str_key))
+        {
+            if (tmp->value)
+                free(tmp->value);
+            tmp->value = ft_strdup(str_value);
+            return (0);
+        }
+        tmp = tmp->next;
+    }
+    if (str_value)
+        free(str_value);
+    return(1);
 }
 
 int    main(int ac, char **av, char **env)
@@ -605,6 +667,7 @@ int    main(int ac, char **av, char **env)
 	split = NULL;
     directory.dir = NULL;
     directory.oldir = NULL;
+    directory.home = NULL;
 
 	my_env = create_env(env);
     update_directory(&directory, my_env);
@@ -681,8 +744,14 @@ int    main(int ac, char **av, char **env)
 			if (!split[1])
 				parse_env(my_env, -1);
 			else if (!strchr(split[1], '='))
+            {
+                add_history(line);
+                free(line);
+                free_array(split);
 				continue;
-			ft_lstadd_back(&my_env, create_node(split[1]));
+            }
+            if (check_existant(my_env, split[1]) == 1)
+			    ft_lstadd_back(&my_env, create_node(split[1]));
 		}
 
 		// handle pwd
@@ -690,22 +759,45 @@ int    main(int ac, char **av, char **env)
             printf("%s\n", directory.dir);
 
         // handle cd
-        if (!ft_strcmp(split[0], "cd"))
-        {
-            if (!split[1] || (split[1] && split[1] == '~'))
-            {
-                tmp = my_env;
-                if (chdir())
-            }
-        }
+        // if (!ft_strcmp(split[0], "cd"))
+        // {
+        //     if (!split[1] || (split[1] && split[1] == '~'))
+        //     {
+        //         if (chdir(ft_getpath(my_env, "HOME") == -1))
+        //         {
+        //             if (access(ft_getpath(my_env, "HOME"), W_OK | R_OK) == -1)
+        //                 printf("cd: no such file or directory\n");
+        //             else if (access(ft_getpath(my_env, "HOME"), X_OK) == -1)
+        //                 printf("cd: permission denied\n");
+        //         }
+        //         getcwd()
+        //     }
+        // }
 
         // handle clear
 
-
-
         add_history(line);
         free(line);
-        free_array(split);
+        if (split)
+        {
+            free_array(split);
+            split = NULL;
+        }
+    }
+    if (directory.dir)
+    {
+        free(directory.dir);
+        directory.dir = NULL;
+    }
+    if (directory.oldir)
+    {
+        free(directory.oldir);
+        directory.oldir = NULL;
+    }
+    if (directory.home)
+    {
+        free(directory.home);
+        directory.home = NULL;
     }
 	lst_clean(my_env);
     rl_clear_history();
