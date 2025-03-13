@@ -137,36 +137,6 @@ static void free_argv(char **argv, int count)
     free(argv);
 }
 
-static int count_args(const char *input)
-{
-    int count = 0;
-    int in_quotes = 0;
-    char quote_char = 0;
-
-    while (*input)
-    {
-        while (*input == ' ')
-            input++;
-        if (!*input)
-            break;
-        count++;
-        while (*input && (in_quotes || *input != ' '))
-        {
-            if ((*input == '\'' || *input == '"') && !in_quotes)
-            {
-                in_quotes = 1;
-                quote_char = *input;
-            }
-            else if (*input == quote_char && in_quotes)
-            {
-                in_quotes = 0;
-                quote_char = 0;
-            }
-            input++;
-        }
-    }
-    return (count);
-}
 
 int	ft_strcmp(char *str1, const char *str2)
 {
@@ -178,59 +148,84 @@ int	ft_strcmp(char *str1, const char *str2)
     return (*(unsigned char *)str1 - *(unsigned char *)str2);
 }
 
-static char *get_next_arg(const char **input)
+static int is_whitespace(char c)
 {
-    const char *start = *input;
-    int in_quotes = 0;
-    char quote_char = 0;
-
-    while (**input == ' ')
-        (*input)++;
-    start = *input;
-    while (**input && (in_quotes || **input != ' '))
-    {
-        if ((**input == '\'' || **input == '"') && !in_quotes)
-        {
-            in_quotes = 1;
-            quote_char = **input;
-        }
-        else if (**input == quote_char && in_quotes)
-        {
-            in_quotes = 0;
-            quote_char = 0;
-        }
-        (*input)++;
-    }
-    int len = *input - start;
-    char *arg = malloc(len + 1);
-    if (!arg)
-        return (NULL);
-    strncpy(arg, start, len);
-    arg[len] = '\0';
-    return (arg);
+    return (c == ' ' || c == '\t' || c == '\n' || c == '\r');
 }
 
-char **parse_prompt_to_argv(const char *input)
-{
+char **parse_prompt_to_argv(const char *input) {
     if (!input)
-        return (NULL);
-    int argc = count_args(input);
-    if (argc == 0)
-        return (NULL);
-    char **argv = malloc((argc + 1) * sizeof(char *));
-    if (!argv)
-        return (NULL);
-    for (int i = 0; i < argc; i++)
-    {
-        argv[i] = get_next_arg(&input);
-        if (!argv[i])
-        {
-            free_argv(argv, i);
-            return (NULL);
+        return NULL;
+
+    // First pass: count tokens.
+    int token_count = 0;
+    const char *p = input;
+    while (*p) {
+        // Skip whitespace.
+        while (*p && is_whitespace(*p))
+            p++;
+        if (!*p)
+            break;
+        token_count++;
+        if (*p == '\"') {
+            p++;  // skip the opening quote.
+            while (*p && *p != '\"')
+                p++;
+            if (*p == '\"')
+                p++;  // skip the closing quote.
+        } else {
+            while (*p && !is_whitespace(*p))
+                p++;
         }
     }
-    argv[argc] = NULL;
-    return (argv);
+
+    // Allocate array for tokens plus one for the terminating NULL.
+    char **argv = malloc(sizeof(char *) * (token_count + 1));
+    if (!argv)
+        return NULL;
+
+    // Second pass: extract tokens.
+    int index = 0;
+    p = input;
+    while (*p) {
+        // Skip whitespace.
+        while (*p && is_whitespace(*p))
+            p++;
+        if (!*p)
+            break;
+
+        const char *start;
+        int len = 0;
+        if (*p == '\"') {
+            p++; // Skip the opening quote.
+            start = p;
+            while (*p && *p != '\"')
+                p++;
+            len = p - start;  // length of the quoted token.
+            if (*p == '\"')
+                p++; // Skip the closing quote.
+        } else {
+            start = p;
+            while (*p && !is_whitespace(*p))
+                p++;
+            len = p - start;
+        }
+        // Allocate memory for the token.
+        char *token = malloc(len + 1);
+        if (!token) {
+            // Free previously allocated tokens.
+            for (int j = 0; j < index; j++) {
+                free(argv[j]);
+            }
+            free(argv);
+            return NULL;
+        }
+        memcpy(token, start, len);
+        token[len] = '\0';
+        argv[index++] = token;
+    }
+    argv[index] = NULL; // Terminate array with NULL.
+    return argv;
 }
 
 void	error_par(char **data, const char *msg)
@@ -616,41 +611,36 @@ void    handle_echo(char **args, t_env *env, t_dir *dir)
     dir->exit_status_ = 0;
 }
 
-int		check_unclosed(char *line) // this still on work 
+int check_unclosed(char *line)
 {
-	int		s_nbr;
-	int		d_nbr;
-	int		i;
-	char	is_first = ' ';
+    int i = 0;
+    int in_single_quote = 0;
+    int in_double_quote = 0;
 
-	i = 0;
-	s_nbr = 0;
-	d_nbr = 0;
-	while (line[i])
-	{
-		if (line[i] == '"' && is_first == ' ')
-		{
-			d_nbr++;
-			is_first = line[i];
-		}
-		else if (line[i] == '\'' && is_first == ' ')
-		{
-			s_nbr++;
-			is_first = line[i];
-		}
-		i++;
-		if (line[i] == '"' && s_nbr % 2 != 0 && is_first == line[i])
-		{
-			printf("✘ FATAL ERROR: Unclosed Single Quotes ... Try Again\n");
-			return (1);
-		}
-		if (line[i] == '\'' && d_nbr % 2 != 0 && is_first == line[i])
-		{
-			printf("✘ FATAL ERROR: Unclosed Double Quotes ... Try Again\n");
-			return (1);
-		}
-	}
-	return (0);
+    while (line[i])
+    {
+        if (line[i] == '\\' && line[i + 1])
+        {
+            i += 2;
+            continue;
+        }
+        if (line[i] == '\'' && !in_double_quote)
+            in_single_quote = !in_single_quote;
+        if (line[i] == '"' && !in_single_quote)
+            in_double_quote = !in_double_quote;
+        i++;
+    }
+    if (in_single_quote)
+    {
+        printf("✘ FATAL ERROR: Unclosed Single Quotes ... Try Again\n");
+        return 1;
+    }
+    if (in_double_quote)
+    {
+        printf("✘ FATAL ERROR: Unclosed Double Quotes ... Try Again\n");
+        return 1;
+    }
+    return 0;
 }
 
 void    update_directory(t_dir *dir, t_env *my_env)
@@ -807,7 +797,11 @@ void    handle_cd(char **split, t_env *my_env, t_dir *dir)
             }
             return ;
         }
-        getcwd(buf, sizeof(buf));
+        if (!getcwd(buf, sizeof(buf)))
+        {
+            perror("✘ getcwd");
+            return;
+        }
         while (tmp)
         {
             if (!ft_strcmp(tmp->var, "PWD"))
@@ -970,19 +964,10 @@ int    main(int ac, char **av, char **env)
 
 		// this to check for unclosed quotes
 		i = 0;
-		while (split[i])
+		if (check_unclosed(line) == 1)
         {
-            if (check_unclosed(split[i]) == 1)
-            {
-                has_unclosed_quotes = 1;
-                break;
-            }
-            i++;
-        }
-        if (has_unclosed_quotes)
-        {
-			add_history(line);
-            free_array(split);
+            directory.exit_status_ = 1;
+            add_history(line);
             free(line);
             continue;
         }
