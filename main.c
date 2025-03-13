@@ -42,8 +42,8 @@ typedef struct s_dir
 {
     char    *oldir;
     char    *dir;
-    char    *home;
-    int     exit_status_;
+    char    *home; // Added for ~ expansion
+    int     exit_status_; // Added for exit status tracking
 }           t_dir;
 
 void	lst_clean(t_env *head)
@@ -137,7 +137,6 @@ static void free_argv(char **argv, int count)
     free(argv);
 }
 
-
 int	ft_strcmp(char *str1, const char *str2)
 {
     while (*str1 && (*str1 == *str2))
@@ -153,78 +152,110 @@ static int is_whitespace(char c)
     return (c == ' ' || c == '\t' || c == '\n' || c == '\r');
 }
 
-char **parse_prompt_to_argv(const char *input) {
+char **parse_prompt_to_argv(const char *input)
+{
     if (!input)
         return NULL;
 
-    // First pass: count tokens.
     int token_count = 0;
     const char *p = input;
-    while (*p) {
-        // Skip whitespace.
+
+    // First pass: Count the number of tokens
+    while (*p)
+    {
         while (*p && is_whitespace(*p))
-            p++;
+            p++;  // Skip whitespace
         if (!*p)
-            break;
+            break;  // End of input
+
         token_count++;
-        if (*p == '\"') {
-            p++;  // skip the opening quote.
-            while (*p && *p != '\"')
-                p++;
-            if (*p == '\"')
-                p++;  // skip the closing quote.
-        } else {
+
+        // Handle quoted strings
+        if (*p == '\"' || *p == '\'')
+        {
+            char quote_char = *p;  // Store the type of quote (single or double)
+            p++;  // Move past the opening quote
+            while (*p && *p != quote_char)
+                p++;  // Move to the closing quote
+            if (*p == quote_char)
+                p++;  // Move past the closing quote
+        }
+        else
+        {
+            // Handle unquoted tokens
             while (*p && !is_whitespace(*p))
                 p++;
         }
     }
 
-    // Allocate array for tokens plus one for the terminating NULL.
+    // Allocate memory for the argument array
     char **argv = malloc(sizeof(char *) * (token_count + 1));
     if (!argv)
         return NULL;
 
-    // Second pass: extract tokens.
+    // Second pass: Extract tokens (preserving quotes)
     int index = 0;
     p = input;
-    while (*p) {
-        // Skip whitespace.
+    while (*p)
+    {
         while (*p && is_whitespace(*p))
-            p++;
+            p++;  // Skip whitespace
         if (!*p)
-            break;
+            break;  // End of input
 
-        const char *start;
+        const char *start = p;
         int len = 0;
-        if (*p == '\"') {
-            p++; // Skip the opening quote.
-            start = p;
-            while (*p && *p != '\"')
-                p++;
-            len = p - start;  // length of the quoted token.
-            if (*p == '\"')
-                p++; // Skip the closing quote.
-        } else {
+
+        // Handle quoted strings
+        if (*p == '\"' || *p == '\'')
+        {
+            char quote_char = *p;  // Store the type of quote (single or double)
+            p++;  // Move past the opening quote
+            start = p;  // Start of the quoted content
+            while (*p && *p != quote_char)
+                p++;  // Move to the closing quote
+            len = p - start;  // Length of the quoted content
+            if (*p == quote_char)
+                p++;  // Move past the closing quote
+        }
+        else
+        {
+            // Handle unquoted tokens
             start = p;
             while (*p && !is_whitespace(*p))
                 p++;
             len = p - start;
         }
-        // Allocate memory for the token.
-        char *token = malloc(len + 1);
-        if (!token) {
-            // Free previously allocated tokens.
-            for (int j = 0; j < index; j++) {
+
+        // Allocate memory for the token (including quotes if necessary)
+        char *token = malloc(len + 3);  // +3 for quotes and null terminator
+        if (!token)
+        {
+            // Free previously allocated tokens on failure
+            for (int j = 0; j < index; j++)
                 free(argv[j]);
-            }
             free(argv);
             return NULL;
         }
-        memcpy(token, start, len);
-        token[len] = '\0';
+
+        // Copy the token content (preserving quotes)
+        if (*start == '\"' || *start == '\'')
+        {
+            token[0] = *(start - 1);  // Opening quote
+            memcpy(token + 1, start, len);  // Quoted content
+            token[len + 1] = *(start + len);  // Closing quote
+            token[len + 2] = '\0';  // Null-terminate
+        }
+        else
+        {
+            memcpy(token, start, len);  // Unquoted content
+            token[len] = '\0';  // Null-terminate
+        }
+
         argv[index++] = token;
     }
-    argv[index] = NULL; // Terminate array with NULL.
+
+    argv[index] = NULL;  // Null-terminate the argument array
     return argv;
 }
 
@@ -439,64 +470,6 @@ char *check_env(t_env *env, char *str)
     return NULL;
 }
 
-// char    *special_env_expand(const char *token, t_env *env, int *status)
-// {
-//     size_t len = strlen(token);
-//     char *result = malloc(len + 1);
-//     if (!result)
-//         return NULL;
-//     size_t i = 0, j = 0;
-//     int in_double_quotes = 0;
-//     int in_single_quotes = 0;
-
-//     while (token[i])
-//     {
-//         if (token[i] == '"' && !in_single_quotes)
-//         {
-//             in_double_quotes = !in_double_quotes;
-//             i++;
-//         }
-//         else if (token[i] == '\'' && !in_double_quotes)
-//         {
-//             in_single_quotes = !in_single_quotes;
-//             i++;
-//         }
-//         else if (token[i] == '$' && !in_single_quotes)
-//         {
-//             i++;
-//             // if (token[i] == '?')
-//             // {
-//             //     //uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuh
-//             // }
-//             size_t var_start = i;
-//             while (token[i] && ((token[i] >= 'A' && token[i] <= 'Z') ||
-//                                 (token[i] >= 'a' && token[i] <= 'z') ||
-//                                 (token[i] >= '0' && token[i] <= '9') ||
-//                                 token[i] == '_'))
-//             {
-//                 i++;
-//             }
-//             size_t var_len = i - var_start;
-//             char *var_name = malloc(var_len + 1);
-//             if (!var_name)
-//                 break;
-//             strncpy(var_name, token + var_start, var_len);
-//             var_name[var_len] = '\0';
-//             char *env_value = check_env(env, var_name);
-//             free(var_name);
-//             if (env_value) {
-//                 size_t k = 0;
-//                 while (env_value[k])
-//                     result[j++] = env_value[k++];
-//             }
-//         }
-//         else
-//             result[j++] = token[i++];
-//     }
-//     result[j] = '\0';
-//     return result;
-// }
-
 void int_to_str(int num, char *buffer)
 {
     int i = 0;
@@ -554,8 +527,6 @@ char *special_env_expand(const char *token, t_env *env, int last_exit_status)
                     result[j++] = exit_status[k++];
                 i++;
             }
-            else if (token[i] == '?')
-                printf("✘ Sorry there no way to get PID right now\n");
             else
             {
                 size_t var_start = i;
@@ -601,7 +572,12 @@ void    handle_echo(char **args, t_env *env, t_dir *dir)
     }
     while (args[i])
     {
-        printf("%s", args[i]);
+        char *expanded = special_env_expand(args[i], env, dir->exit_status_);
+        if (expanded)
+		{
+            printf("%s", expanded);
+            free(expanded);
+        }
         if (args[i + 1])
             printf(" ");
         i++;
