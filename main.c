@@ -42,8 +42,8 @@ typedef struct s_dir
 {
     char    *oldir;
     char    *dir;
-    char    *home; // Added for ~ expansion
-    int     exit_status_; // Added for exit status tracking
+    char    *home;
+    int     exit_status_;
 }           t_dir;
 
 void	lst_clean(t_env *head)
@@ -137,6 +137,37 @@ static void free_argv(char **argv, int count)
     free(argv);
 }
 
+static int count_args(const char *input)
+{
+    int count = 0;
+    int in_quotes = 0;
+    char quote_char = 0;
+
+    while (*input)
+    {
+        while (*input == ' ')
+            input++;
+        if (!*input)
+            break;
+        count++;
+        while (*input && (in_quotes || *input != ' '))
+        {
+            if ((*input == '\'' || *input == '"') && !in_quotes)
+            {
+                in_quotes = 1;
+                quote_char = *input;
+            }
+            else if (*input == quote_char && in_quotes)
+            {
+                in_quotes = 0;
+                quote_char = 0;
+            }
+            input++;
+        }
+    }
+    return (count);
+}
+
 int	ft_strcmp(char *str1, const char *str2)
 {
     while (*str1 && (*str1 == *str2))
@@ -147,116 +178,59 @@ int	ft_strcmp(char *str1, const char *str2)
     return (*(unsigned char *)str1 - *(unsigned char *)str2);
 }
 
-static int is_whitespace(char c)
+static char *get_next_arg(const char **input)
 {
-    return (c == ' ' || c == '\t' || c == '\n' || c == '\r');
+    const char *start = *input;
+    int in_quotes = 0;
+    char quote_char = 0;
+
+    while (**input == ' ')
+        (*input)++;
+    start = *input;
+    while (**input && (in_quotes || **input != ' '))
+    {
+        if ((**input == '\'' || **input == '"') && !in_quotes)
+        {
+            in_quotes = 1;
+            quote_char = **input;
+        }
+        else if (**input == quote_char && in_quotes)
+        {
+            in_quotes = 0;
+            quote_char = 0;
+        }
+        (*input)++;
+    }
+    int len = *input - start;
+    char *arg = malloc(len + 1);
+    if (!arg)
+        return (NULL);
+    strncpy(arg, start, len);
+    arg[len] = '\0';
+    return (arg);
 }
 
 char **parse_prompt_to_argv(const char *input)
 {
     if (!input)
-        return NULL;
-
-    int token_count = 0;
-    const char *p = input;
-
-    // First pass: Count the number of tokens
-    while (*p)
-    {
-        while (*p && is_whitespace(*p))
-            p++;  // Skip whitespace
-        if (!*p)
-            break;  // End of input
-
-        token_count++;
-
-        // Handle quoted strings
-        if (*p == '\"' || *p == '\'')
-        {
-            char quote_char = *p;  // Store the type of quote (single or double)
-            p++;  // Move past the opening quote
-            while (*p && *p != quote_char)
-                p++;  // Move to the closing quote
-            if (*p == quote_char)
-                p++;  // Move past the closing quote
-        }
-        else
-        {
-            // Handle unquoted tokens
-            while (*p && !is_whitespace(*p))
-                p++;
-        }
-    }
-
-    // Allocate memory for the argument array
-    char **argv = malloc(sizeof(char *) * (token_count + 1));
+        return (NULL);
+    int argc = count_args(input);
+    if (argc == 0)
+        return (NULL);
+    char **argv = malloc((argc + 1) * sizeof(char *));
     if (!argv)
-        return NULL;
-
-    // Second pass: Extract tokens (preserving quotes)
-    int index = 0;
-    p = input;
-    while (*p)
+        return (NULL);
+    for (int i = 0; i < argc; i++)
     {
-        while (*p && is_whitespace(*p))
-            p++;  // Skip whitespace
-        if (!*p)
-            break;  // End of input
-
-        const char *start = p;
-        int len = 0;
-
-        // Handle quoted strings
-        if (*p == '\"' || *p == '\'')
+        argv[i] = get_next_arg(&input);
+        if (!argv[i])
         {
-            char quote_char = *p;  // Store the type of quote (single or double)
-            p++;  // Move past the opening quote
-            start = p;  // Start of the quoted content
-            while (*p && *p != quote_char)
-                p++;  // Move to the closing quote
-            len = p - start;  // Length of the quoted content
-            if (*p == quote_char)
-                p++;  // Move past the closing quote
+            free_argv(argv, i);
+            return (NULL);
         }
-        else
-        {
-            // Handle unquoted tokens
-            start = p;
-            while (*p && !is_whitespace(*p))
-                p++;
-            len = p - start;
-        }
-
-        // Allocate memory for the token (including quotes if necessary)
-        char *token = malloc(len + 3);  // +3 for quotes and null terminator
-        if (!token)
-        {
-            // Free previously allocated tokens on failure
-            for (int j = 0; j < index; j++)
-                free(argv[j]);
-            free(argv);
-            return NULL;
-        }
-
-        // Copy the token content (preserving quotes)
-        if (*start == '\"' || *start == '\'')
-        {
-            token[0] = *(start - 1);  // Opening quote
-            memcpy(token + 1, start, len);  // Quoted content
-            token[len + 1] = *(start + len);  // Closing quote
-            token[len + 2] = '\0';  // Null-terminate
-        }
-        else
-        {
-            memcpy(token, start, len);  // Unquoted content
-            token[len] = '\0';  // Null-terminate
-        }
-
-        argv[index++] = token;
     }
-
-    argv[index] = NULL;  // Null-terminate the argument array
-    return argv;
+    argv[argc] = NULL;
+    return (argv);
 }
 
 void	error_par(char **data, const char *msg)
@@ -356,7 +330,7 @@ t_env *create_env(char **envp)
         new_node = create_node(envp[i]);
         if (!new_node)
         {
-            printf("✘ Warning: Failed to create environment node for: %s\n", envp[i]);
+            printf("Warning: Failed to create environment node for: %s\n", envp[i]);
             i++;
             continue;
         }
@@ -377,7 +351,7 @@ t_env *create_env(char **envp)
         new_node = create_node("HOME=/home/izahr");
         if (!new_node)
         {
-            printf("✘ Warning: Failed to create environment node for: %s\n", envp[i]);
+            printf("Warning: Failed to create environment node for: %s\n", envp[i]);
             i++;
         }
         if (!lst)
@@ -394,12 +368,12 @@ t_env *create_env(char **envp)
     return (lst);
 }
 
-void	parse_env(t_env *lst, int k, t_dir *dir)
+void	parse_env(t_env *lst, int k)
 {
 	if (!lst)
 	{
-		write(1, "✘ There is No Environement Variables. . .\n", 41);
-		dir->exit_status_ = 1;
+		write(1, "There is No Environement Variables. . .\n", 41);
+		exit(1);
 	}
 	while (lst)
 	{
@@ -498,7 +472,7 @@ void int_to_str(int num, char *buffer)
     buffer[i] = '\0';
 }
 
-char *special_env_expand(const char *token, t_env *env, int last_exit_status)
+char    *special_check(const char *token, t_env *env, int last_exit_status)
 {
     size_t len = strlen(token);
     char *result = malloc(len + 1);
@@ -560,7 +534,7 @@ char *special_env_expand(const char *token, t_env *env, int last_exit_status)
     return result;
 }
 
-void    handle_echo(char **args, t_env *env, t_dir *dir)
+void handle_echo(char **args, t_env *env, t_dir *dir)
 {
     int i = 1;
     int line_flag = 0;
@@ -571,20 +545,29 @@ void    handle_echo(char **args, t_env *env, t_dir *dir)
         i = 2;
     }
     while (args[i])
-    {
-        char *expanded = special_env_expand(args[i], env, dir->exit_status_);
-        if (expanded)
+	{
+        char *processed = special_check(args[i], env, dir->exit_status_);
+        int j = 0;
+        if (processed)
 		{
-            printf("%s", expanded);
-            free(expanded);
+            if (processed[0] == '\"' || processed[0] == '\'')
+                j = 1;
+            int len = strlen(processed);
+            if (processed[len - 1] == '\"' || processed[len - 1] == '\'')
+                len--;
+            while (j < len)
+            {
+                write(1, processed + j, 1);
+                j++;
+            }
+            free(processed);
         }
         if (args[i + 1])
-            printf(" ");
+           printf(" ");
         i++;
     }
     if (!line_flag)
         printf("\n");
-    dir->exit_status_ = 0;
 }
 
 int check_unclosed(char *line)
@@ -800,28 +783,15 @@ void    handle_cd(char **split, t_env *my_env, t_dir *dir)
     update_directory(dir, my_env);
 }
 
-int check_existant(t_env *my_env, char *str)
+int    check_existant(t_env *my_env, char *str)
 {
-    t_env *tmp;
-    char *str_key;
-    char *str_value;
-    char *equal_sign;
+    t_env   *tmp;
+    char    *str_key;
+    char    *str_value;
 
-    if (!str)
-        return 1;
-    equal_sign = strchr(str, '=');
-    if (!equal_sign)
-        return 1;
     tmp = my_env;
-    str_key = ft_substr(str, 0, equal_sign - str);
-    if (!str_key)
-        return 1;
-    str_value = ft_strdup(equal_sign + 1);
-    if (!str_value)
-    {
-        free(str_key);
-        return 1;
-    }
+    str_key = ft_substr(str, 0, strchr(str, '=') - str);
+    str_value = ft_strdup(strchr(str, '=') + 1);
     while (tmp)
     {
         if (!ft_strcmp(tmp->var, str_key))
@@ -829,15 +799,13 @@ int check_existant(t_env *my_env, char *str)
             if (tmp->value)
                 free(tmp->value);
             tmp->value = ft_strdup(str_value);
-            free(str_key);
-            free(str_value);
-            return 0;
+            return (0);
         }
         tmp = tmp->next;
     }
-    free(str_key);
-    free(str_value);
-    return 1;
+    if (str_value)
+        free(str_value);
+    return(1);
 }
 
 void    tilda_remod(char **argvs, t_dir dir)
@@ -926,7 +894,7 @@ int    main(int ac, char **av, char **env)
         i = 0;
         while (split[i])
         {
-            char *expanded = special_env_expand(split[i], my_env, directory.exit_status_);
+            char *expanded = special_check(split[i], my_env, directory.exit_status_);
             if (expanded)
             {
                 free(split[i]);
@@ -934,7 +902,7 @@ int    main(int ac, char **av, char **env)
             }
             i++;
         }
-
+        
         // handle the glorious tilde
         tilda_remod(split, directory);
 
@@ -965,7 +933,7 @@ int    main(int ac, char **av, char **env)
 
 		// handle env
 		if (!ft_strcmp(split[0], "env"))
-			parse_env(my_env, 0, &directory);
+			parse_env(my_env, 0);
 
 		// handle unset
 		if (!ft_strcmp(split[0], "unset"))
@@ -984,7 +952,7 @@ int    main(int ac, char **av, char **env)
 		else if (!ft_strcmp(split[0], "export"))
 		{
 			if (!split[1])
-				parse_env(my_env, -1, &directory);
+				parse_env(my_env, -1);
 			else if (!strchr(split[1], '='))
             {
                 add_history(line);
@@ -1003,7 +971,7 @@ int    main(int ac, char **av, char **env)
         // handle cd
         if (!ft_strcmp(split[0], "cd"))
             handle_cd(split, my_env, &directory);
-
+        
         // handle clear
         if (!ft_strcmp(split[0], "clear"))
         {
@@ -1011,7 +979,7 @@ int    main(int ac, char **av, char **env)
             free(line);
             continue;
         }
-        
+
         add_history(line);
         free(line);
         if (split)
