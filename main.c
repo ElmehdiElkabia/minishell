@@ -74,6 +74,25 @@ void	free_array(char **arr)
 	free(arr);
 }
 
+int is_not_alpha_num_equal(const char *str)
+{
+    int danger_area = 0;
+    if (!*str)
+        return (0);
+    while (*str)
+    {
+        if (*str == '=')
+            danger_area = 1;
+        if (!((*str >= '0' && *str <= '9') ||
+              (*str >= 'A' && *str <= 'Z') ||
+              (*str >= 'a' && *str <= 'z')) &&
+              !danger_area)
+            return (1);
+        str++;
+    }
+    return (0);
+}
+
 size_t	ft_strlcpy(char *dst, const char *src, size_t dstsize)
 {
 	size_t	i;
@@ -116,7 +135,7 @@ char	*ft_strdup(const char *s1)
 	int		i;
 
 	i = 0;
-	if (!s1)
+	if (!s1) 
 		return (NULL);
 	t1 = malloc((ft_strlen(s1) + 1) * sizeof(char));
 	if (!t1)
@@ -475,7 +494,7 @@ void int_to_str(int num, char *buffer)
 char    *special_check(const char *token, t_env *env, int last_exit_status)
 {
     size_t len = strlen(token);
-    char *result = malloc(len + 1);
+    char *result = malloc(PATH_MAX);
     if (!result)
         return NULL;
 
@@ -501,7 +520,10 @@ char    *special_check(const char *token, t_env *env, int last_exit_status)
                     result[j++] = exit_status[k++];
                 i++;
             }
-            else
+            else if ((token[i] >= 'A' && token[i] <= 'Z') ||
+                     (token[i] >= 'a' && token[i] <= 'z') ||
+                     (token[i] >= '0' && token[i] <= '9') ||
+                     token[i] == '_')
             {
                 size_t var_start = i;
                 while (token[i] && ((token[i] >= 'A' && token[i] <= 'Z') ||
@@ -526,6 +548,8 @@ char    *special_check(const char *token, t_env *env, int last_exit_status)
                         result[j++] = env_value[k++];
                 }
             }
+            else
+                result[j++] = '$';
         }
         else
             result[j++] = token[i++];
@@ -534,10 +558,11 @@ char    *special_check(const char *token, t_env *env, int last_exit_status)
     return result;
 }
 
-void handle_echo(char **args, t_env *env, t_dir *dir)
+void    handle_echo(char **args, t_env *env, t_dir *dir)
 {
     int i = 1;
     int line_flag = 0;
+    int in_quotes = 0;
     
     if (args[1] && !ft_strcmp(args[1], "-n"))
 	{
@@ -551,19 +576,24 @@ void handle_echo(char **args, t_env *env, t_dir *dir)
         if (processed)
 		{
             if (processed[0] == '\"' || processed[0] == '\'')
+            {
                 j = 1;
+                in_quotes = 1;
+            }
             int len = strlen(processed);
             if (processed[len - 1] == '\"' || processed[len - 1] == '\'')
                 len--;
             while (j < len)
             {
-                write(1, processed + j, 1);
+                if ((processed[j] == '\"' || processed[j] == '\'') && !in_quotes) {}
+                else
+                    write(1, processed + j, 1);
                 j++;
             }
             free(processed);
         }
         if (args[i + 1])
-           printf(" ");
+           write(1, " ", 1);
         i++;
     }
     if (!line_flag)
@@ -949,10 +979,12 @@ int    main(int ac, char **av, char **env)
 		}
 
 		// handle export
-		else if (!ft_strcmp(split[0], "export"))
+		if (!ft_strcmp(split[0], "export"))
 		{
 			if (!split[1])
 				parse_env(my_env, -1);
+            else if ((directory.exit_status_ = is_not_alpha_num_equal(split[1])))
+                printf("✘ bash: export: `%s' : not a valid identifier\n", split[1]);
 			else if (!strchr(split[1], '='))
             {
                 add_history(line);
@@ -960,7 +992,7 @@ int    main(int ac, char **av, char **env)
                 free_array(split);
 				continue;
             }
-            if (check_existant(my_env, split[1]) == 1)
+            else if (check_existant(my_env, split[1]) == 1)
 			    ft_lstadd_back(&my_env, create_node(split[1]));
 		}
 
