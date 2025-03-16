@@ -6,7 +6,7 @@
 /*   By: eelkabia <eelkabia@student.1337.ma>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/03/08 01:55:25 by eelkabia          #+#    #+#             */
-/*   Updated: 2025/03/13 16:16:09 by eelkabia         ###   ########.fr       */
+/*   Updated: 2025/03/16 16:43:57 by eelkabia         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -151,9 +151,22 @@ void fr_cd(t_minishell *data, t_envp **head)
 	free(old_pwd);
 }
 
+void ft_free_array(char **str)
+{
+	int i;
+
+	i = 0;
+	while (str[i])
+	{
+		free(str[i]);
+		i++;
+	}
+	free(str);
+}
+
 void execve_input(t_minishell *data, t_envp **head)
 {
-	data->arg_cmd = ft_split(data->str, ' ');
+	data->arg_cmd = parse_input(data->str);
 	if (!data->arg_cmd)
 		return;
 	else if (ft_strncmp(data->arg_cmd[0], "env", 4) == 0)
@@ -175,4 +188,8 @@ void execve_input(t_minishell *data, t_envp **head)
 		ft_getcwd();
 	else if (ft_strncmp(data->arg_cmd[0], "cd", 3) == 0)
 		fr_cd(data, head);
+	else if (ft_strncmp(data->arg_cmd[0], "clear", 6) == 0)
+		printf("\033[H\033[J");
+	if (data->arg_cmd)
+		ft_free_array(data->arg_cmd);
 }

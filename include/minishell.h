@@ -6,7 +6,7 @@
 /*   By: eelkabia <eelkabia@student.1337.ma>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/03/08 01:40:21 by eelkabia          #+#    #+#             */
-/*   Updated: 2025/03/11 02:08:00 by eelkabia         ###   ########.fr       */
+/*   Updated: 2025/03/16 15:42:52 by eelkabia         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -43,5 +43,7 @@ void	add_env_node(t_envp **head, char *key, char *value);
 void update_env_node(t_envp **head, char *key, char *value);
 void 	print_env_list(t_envp *head);
 void free_env_list(t_envp *head);
+
+char **parse_input(char *str);
 
 #endif

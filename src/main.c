@@ -6,24 +6,24 @@
 /*   By: eelkabia <eelkabia@student.1337.ma>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/03/08 01:34:39 by eelkabia          #+#    #+#             */
-/*   Updated: 2025/03/13 16:24:19 by eelkabia         ###   ########.fr       */
+/*   Updated: 2025/03/16 16:15:50 by eelkabia         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "../include/minishell.h"
 
-char	*promot(void)
+char	*prompt(void)
 {
-	char	*promot;
+	char	*prompt;
 	char	*pwd;
 
 	pwd = getcwd(NULL, 0);
 	if (!pwd)
 		return NULL;
-	promot = ft_strjoin("$:", pwd);
+	prompt = ft_strjoin("$:", pwd);
 	free(pwd);
-	promot = ft_strjoin(promot , "> ");
-	return (promot);
+	prompt = ft_strjoin(prompt , "> ");
+	return (prompt);
 }
 
 int main(int argc, char **argv, char **envp)
@@ -37,7 +37,7 @@ int main(int argc, char **argv, char **envp)
 	init_env(&env, envp);
 	while (1)
 	{
-		data.str = readline(promot());
+		data.str = readline(prompt());
 		if (!data.str)
 		{
 			printf("exit\n");
