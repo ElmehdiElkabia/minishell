@@ -32,6 +32,12 @@ typedef enum e_role
     APPEND    //  >>
 }   t_role;
 
+typedef enum e_stat
+{
+    LOOP = 0,
+    NO_LOOP = 1
+}   t_stat;
+
 typedef struct s_env
 {
     char			*var;
@@ -46,6 +52,126 @@ typedef struct s_dir
     char    *home;
     int     exit_status_;
 }           t_dir;
+
+size_t	ft_strlcpy(char *dst, const char *src, size_t dstsize)
+{
+	size_t	i;
+	size_t	j;
+
+	i = 0;
+	j = 0;
+	if (!src)
+		src = "";
+	if (!dst)
+		return (0);
+	while (src[i])
+		i++;
+	if (dstsize == 0)
+		return (i);
+	while (src[j] && j < dstsize - 1)
+	{
+		dst[j] = src[j];
+		j++;
+	}
+	dst[j] = '\0';
+	return (i);
+}
+
+static void	iclean(char **t, int end)
+{
+	int	i;
+
+	i = 0;
+	while (i < end)
+	{
+		free(t[i]);
+		i++;
+	}
+	free(t);
+}
+
+static int	count_words(char const *s, char c)
+{
+	int	i;
+	int	k;
+	int	cpt;
+
+	i = 0;
+	cpt = 0;
+	k = 1;
+	while (s[i])
+	{
+		if (s[i] == c)
+			k = 1;
+		else if (s[i] != c && k == 1)
+		{
+			cpt++;
+			k = 0;
+		}
+		i++;
+	}
+	return (cpt);
+}
+
+static char	*cl_al_fi(char const *s, char c)
+{
+	int		i;
+	int		cpt;
+	char	*p;
+
+	i = 0;
+	cpt = 0;
+	while (s[i] && s[i] == c)
+		i++;
+	while (s[i + cpt] && s[i + cpt] != c)
+		cpt++;
+	p = malloc((cpt + 1) * sizeof(char));
+	if (p)
+	{
+		ft_strlcpy(p, s + i, cpt + 1);
+		p[cpt] = '\0';
+	}
+	return (p);
+}
+
+char	**sub_split(char **strs, char c, char const *s)
+{
+	int	i;
+
+	i = 0;
+	while (*s)
+	{
+		while (*s == c)
+			s++;
+		if (*s)
+		{
+			strs[i] = cl_al_fi (s, c);
+			if (!strs[i])
+			{
+				iclean (strs, i);
+				return (NULL);
+			}
+			i++;
+			while (*s && *s != c)
+				s++;
+		}
+	}
+	strs[i] = NULL;
+	return (strs);
+}
+
+char	**ft_split(char const *s, char c)
+{
+	char	**strs;
+
+	if (!s)
+		return (NULL);
+	strs = malloc((count_words(s, c) + 1) * sizeof(char *));
+	if (!strs)
+		return (NULL);
+	strs = sub_split(strs, c, s);
+	return (strs);
+}
 
 void	lst_clean(t_env *head)
 {
@@ -121,29 +247,6 @@ int is_all_num(char *str)
     return (1);
 }
 
-size_t	ft_strlcpy(char *dst, const char *src, size_t dstsize)
-{
-	size_t	i;
-	size_t	j;
-
-	i = 0;
-	j = 0;
-	if (!src)
-		src = "";
-	if (!dst)
-		return (0);
-	while (src[i])
-		i++;
-	if (dstsize == 0)
-		return (i);
-	while (src[j] && j < dstsize - 1)
-	{
-		dst[j] = src[j];
-		j++;
-	}
-	dst[j] = '\0';
-	return (i);
-}
 
 int	ft_strlen(const char *s)
 {
@@ -385,6 +488,30 @@ int	ft_atoi(const char *str)
 	return (sign * number);
 }
 
+void    *ft_realloc(void *ptr, size_t old_size, size_t new_size)
+{
+    if (new_size == 0)
+    {
+        free(ptr);
+        return NULL;
+    }
+
+    void *new_ptr = malloc(new_size);
+    if (!new_ptr)
+    {
+        perror("malloc");
+        return NULL;
+    }
+
+    if (ptr)
+    {
+        size_t copy_size = old_size < new_size ? old_size : new_size;
+        memcpy(new_ptr, ptr, copy_size); // 
+        free(ptr);
+    }
+    return new_ptr;
+}
+
 char	*ft_substr(char *s, int start, size_t len)
 {
 	size_t		i;
@@ -609,14 +736,32 @@ char *special_check(const char *token, t_env *env, int last_exit_status)
     size_t i = 0, j = 0;
     int in_double_quotes = 0;
     int in_single_quotes = 0;
+    int is_first = 0; // 1 for single and 2 for double
 
     while (token[i])
     {
         if (token[i] == '"' && !in_single_quotes)
+        {
             in_double_quotes = !in_double_quotes;
+            if (!is_first)
+                is_first = 2;
+            i++;
+        }
         else if (token[i] == '\'' && !in_double_quotes)
+        {
             in_single_quotes = !in_single_quotes;
-        if (token[i] == '$' && !in_single_quotes)
+            if (!is_first)
+                is_first = 1;
+            i++;
+        }
+        else if ((token[i] == '"' && !in_single_quotes) 
+            || (token[i] == '\'' && !in_double_quotes))
+        {
+            result[j++] = token[i++];
+        }
+        else if (token[i] == '$' && (!token[i + 1] || token[i + 1] == '"'))
+            result[j++] = token[i++];
+        else if (token[i] == '$' && !in_single_quotes)
         {
             i++;
             if (token[i] == '?')
@@ -673,16 +818,17 @@ char *special_check(const char *token, t_env *env, int last_exit_status)
             else
                 result[j++] = '$';
         }
+        else if ((is_first == 2 && token[i] == '"') 
+            || (is_first == 1 && token[i] == '\''))
+            i++;
         else
-        {
             result[j++] = token[i++];
-        }
     }
     result[j] = '\0';
     return result;
 }
 
-void handle_echo(char **args, t_env *env, t_dir *dir)
+void    handle_echo(char **args, t_env *env, t_dir *dir)
 {
     int i = 1;
     int line_flag = 0;
@@ -704,14 +850,6 @@ void handle_echo(char **args, t_env *env, t_dir *dir)
             continue;
         }
         len = ft_strlen(args[i]);
-        if (args[i][0] == '"' || args[i][0] == '\'')
-        {
-            j++;
-            len--;
-            quotes = args[i][0];
-        }
-        if (len > 0 && args[i][len - 1] == quotes)
-            len--;
         while (j < len)
         {
             write(1, &args[i][j], 1);
@@ -760,7 +898,7 @@ void    update_directory(t_dir *dir, t_env *my_env)
 
     if (!my_env)
     {
-        printf("✘ FATAL ERROR: Environement Not Found ...\n");
+        printf("✘ mish: env: Environement Not Found ...\n");
         dir->exit_status_ = 1;
     }
     else
@@ -808,7 +946,7 @@ void    handle_cd(char **split, t_env *my_env, t_dir *dir)
 
     tmp = my_env;
     smp = NULL;
-    if (!split[1] || (split[1] && split[1][0] == '~'))
+    if (!split[1])
     {
         if (chdir(dir->home) == -1)
         {
@@ -949,43 +1087,28 @@ int    check_existant(t_env *my_env, char *str)
     return(1);
 }
 
-void    tilda_remod(char *line, t_dir dir)
-{
-    int     i;
-    char    *tmp;
+// void    tilda_remod(char *line, t_dir dir)
+// {
+//     int i = 0;
+//     if (!line || !strchr(line, '~'))
+//         //return (strdup(line));
+//         return;
 
-    i = 0;
-    while (line[i])
-    {
-        if (line[0] == '~' && (!line[1] || line[1] == '/'))
-        {
-            tmp = malloc(strlen(dir.home) + strlen(line) + 1);
-            if (!tmp)
-            {
-                perror("malloc");
-                return ;
-            }
-            strcpy(tmp, dir.home);
-            strcat(tmp, line + 1);
-            free(line);
-            line = ft_strdup(tmp);
-            free(tmp);
-        }
-        else if (line[0] == '~' && line[1] != '/')
-        {
-            tmp = malloc(strlen("/home/") + strlen(line) + 1);
-            strcpy(tmp, "/home/");
-            strcat(tmp, line + 1);
-            if (access(tmp, F_OK) == 0)
-            {
-                free(line);
-                line = ft_strdup(tmp);
-                free(tmp);
-            }
-        }
-        i++;
-    }
-}
+//     char *tmp;
+//     char *new;
+//     while (line[i])
+//     {
+//         tmp = strchr(line, '~');
+//         if (!tmp || (tmp[1]))
+//         new = malloc(strlen(line) + strlen(dir.home));
+//         strncpy(new, line, ft_strlen(line)-ft_strlen(tmp));
+//         strcat(new, dir.home);
+//         strcat(new, tmp + 1);
+//         printf("%s\n", new);
+//         i++;
+//     }
+// }
+
 
 int nested_quotes(char *str)
 {
@@ -1008,13 +1131,15 @@ int nested_quotes(char *str)
     return (0);
 }
 
-void    handle_exit(char *line, char **split, t_dir *directory)
+void    handle_exit(char *line, char **split, t_dir *directory, t_stat *STATUS)
 {
+    *STATUS = 1;
     directory->exit_status_ = 0;
     if (split[2])
     {
         write(1, "exit\n✘ mish: exit: too many arguments\n", 41);
         directory->exit_status_ = 1;
+        *STATUS = 0;
     }
     else if ((is_num(split[1]) && !ft_atoi(split[1])) || (nested_quotes(split[1]) == 2))
     {
@@ -1027,9 +1152,6 @@ void    handle_exit(char *line, char **split, t_dir *directory)
         if (split[1])
             directory->exit_status_ = ft_atoi(split[1]);
     }
-    free(line);
-    free_array(split);
-    split = NULL;
 }
 
 void    handle_export(t_dir *directory, char **split, t_env *my_env)
@@ -1054,7 +1176,7 @@ int     check_meta_char(char *str)
     int i;
 
     i = 0;
-    char *unsupported = "^&*()+@!;\\{}[]~`";
+    char *unsupported = "!#%%&()*,:;<>@[\\]^`{|}";
     while (str[i])
     {
         if (strchr(unsupported, str[i]))
@@ -1067,11 +1189,100 @@ int     check_meta_char(char *str)
     return (0);
 }
 
+char *expand_user(const char *user)
+{
+    char path[256];
+    strcpy(path, "/home/");
+    strcat(path, user);
+    if (access(path, F_OK) == 0)
+        return ft_strdup(path);
+    return NULL;
+}
+
+char *expand_tilde(const char *token, t_dir dir)
+{
+    if (token[0] == '~')
+    {
+        if (token[1] == '/' || token[1] == '\0')
+        {
+            char *result = malloc(strlen(dir.home) + strlen(token) + 1);
+            if (!result)
+            {
+                perror("malloc");
+                return NULL;
+            }
+            strcpy(result, dir.home);
+            if (token[1] == '/')
+                strcat(result, token + 1);
+            return result;
+        }
+        else
+        {
+            char *user = ft_strdup(token + 1);
+            char *user_home = expand_user(user);
+            free(user);
+            return user_home;
+        }
+    }
+    return ft_strdup(token);
+}
+
+void tilda_remod(char **line, t_dir dir)
+{
+    if (!*line || !dir.home)
+        return;
+    char **tokens = ft_split(*line, ' ');
+    if (!tokens)
+        return;
+    char *new_line = malloc(1);
+    if (!new_line)
+    {
+        perror("malloc");
+        free_array(tokens);
+        return;
+    }
+    new_line[0] = '\0';
+    for (int i = 0; tokens[i]; i++)
+    {
+        char *expanded = expand_tilde(tokens[i], dir);
+        if (expanded)
+        {
+            new_line = ft_realloc(new_line, strlen(new_line) + 1, strlen(new_line) + strlen(expanded) + 2);
+            if (!new_line)
+            {
+                free(expanded);
+                free_array(tokens);
+                return;
+            }
+            strcat(new_line, expanded);
+            strcat(new_line, " ");
+            free(expanded);
+        }
+        else
+        {
+            new_line = ft_realloc(new_line, strlen(new_line) + 1, strlen(new_line) + strlen(tokens[i]) + 2);
+            if (!new_line) 
+            {
+                free_array(tokens);
+                return;
+            }
+            strcat(new_line, tokens[i]);
+            strcat(new_line, " ");
+        }
+    }
+    if (strlen(new_line) > 0)
+        new_line[strlen(new_line) - 1] = '\0';
+    free(*line);
+    *line = new_line;
+    free_array(tokens);
+}
+
 int    main(int ac, char **av, char **env)
 {
     char        *line;
 	t_env		*my_env;
     t_dir       directory;
+    t_stat      STATUS;
     char        **split;
     int         i;
 
@@ -1083,10 +1294,11 @@ int    main(int ac, char **av, char **env)
     directory.oldir = NULL;
     directory.home = NULL;
     directory.exit_status_ = 0;
+    STATUS = 0;
 
 	my_env = create_env(env);
     update_directory(&directory, my_env);
-    while (1)
+    while (!STATUS)
     {
         line = readline("✧ mi/sh ➤ ");
         if (!line)
@@ -1102,16 +1314,14 @@ int    main(int ac, char **av, char **env)
             directory.exit_status_ = 1;
             continue;
         }
+        tilda_remod(&line, directory);   
         char *expanded = special_check(line, my_env, directory.exit_status_);
         if (expanded)
         {
             free(line);
             line = ft_strdup(expanded);
             free(expanded);
-        }
-        
-        // handle the glorious tilde
-        tilda_remod(line, directory);        
+        }     
         
         split = parse_prompt_to_argv(line);
         if (line[0] == '\0' || !split || !split[0])
@@ -1122,11 +1332,8 @@ int    main(int ac, char **av, char **env)
             directory.exit_status_ = 0;
             continue;
         }
-        else if (!ft_strcmp(split[0], "exit"))
-		{
-            handle_exit(line, split, &directory);
-            break;
-        }
+        else if (!ft_strcmp(split[0], "exit")) // bad: breaks even in multiple args
+            handle_exit(line, split, &directory, &STATUS);
         else if (!ft_strcmp(split[0], "echo"))
             handle_echo(split, my_env, &directory);
 		else if (!ft_strcmp(split[0], "env"))
@@ -1152,7 +1359,6 @@ int    main(int ac, char **av, char **env)
         }
         else if (!ft_strcmp(split[0], "cd"))
             handle_cd(split, my_env, &directory);
-        // handle clear
         else if (!ft_strcmp(split[0], "clear"))
             write(1, "\033[2J\033[H", 8);
             
