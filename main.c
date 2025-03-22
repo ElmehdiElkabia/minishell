@@ -38,6 +38,13 @@ typedef enum e_stat
     NO_LOOP = 1
 }   t_stat;
 
+typedef struct s_cmd
+{
+    char            *cmd;
+    t_role          role;
+    struct s_cmd    *next;
+}                   t_cmd;
+
 typedef struct s_env
 {
     char			*var;
@@ -52,6 +59,12 @@ typedef struct s_dir
     char    *home;
     int     exit_status_;
 }           t_dir;
+
+int ft_isspace(int c)
+{
+    return (c == ' '  || c == '\t' || c == '\n' ||
+            c == '\r' || c == '\v' || c == '\f');
+}
 
 size_t	ft_strlcpy(char *dst, const char *src, size_t dstsize)
 {
@@ -1176,7 +1189,7 @@ int     check_meta_char(char *str)
     int i;
 
     i = 0;
-    char *unsupported = "!#%%&()*,:;<>@[\\]^`{|}";
+    char *unsupported = "!#%%&()*,:;@[\\]^`{}";
     while (str[i])
     {
         if (strchr(unsupported, str[i]))
@@ -1277,12 +1290,151 @@ void tilda_remod(char **line, t_dir dir)
     free_array(tokens);
 }
 
+void    handle_builtins(char *line, char **split, t_dir *directory, t_stat *STATUS, t_env *my_env)
+{
+    if (!(line[0] == '\0' || !split || !split[0]))
+    {
+        if (!ft_strcmp(split[0], "exit"))
+            handle_exit(line, split, directory, STATUS);
+        else if (!ft_strcmp(split[0], "echo"))
+            handle_echo(split, my_env, directory);
+        else if (!ft_strcmp(split[0], "env"))
+            parse_env(my_env, 0, directory);
+        else if (!ft_strcmp(split[0], "unset"))
+        {
+            directory->exit_status_ = 0;
+            if (split[1])
+                my_env = clear_node(my_env, split[1]);
+        }
+        else if (!ft_strcmp(split[0], "export"))
+            handle_export(directory, split, my_env);
+        else if (!ft_strcmp(split[0], "pwd"))
+        {
+            printf("%s\n", directory->dir);
+            directory->exit_status_ = 0;
+        }
+        else if (!ft_strcmp(split[0], "cd"))
+            handle_cd(split, my_env, directory);
+        else if (!ft_strcmp(split[0], "clear"))
+            write(1, "\033[2J\033[H", 8);
+    }
+}
+
+t_cmd *create_cmd_node(char *cmd, int role)
+{
+    t_cmd *new_node = malloc(sizeof(t_cmd));
+    if (!new_node)
+    {
+        perror("malloc");
+        return NULL;
+    }
+    new_node->cmd = ft_strdup(cmd);
+    new_node->role = role;
+    new_node->next = NULL;
+    return new_node;
+}
+
+void add_cmd_to_list(t_cmd **head, t_cmd *new_node)
+{
+    if (!head || !new_node)
+        return;
+    if (!*head)
+        *head = new_node;
+    else
+    {
+        t_cmd *current = *head;
+        while (current->next)
+            current = current->next;
+        current->next = new_node;
+    }
+}
+
+char    *trim_whitespace(char *str)
+{
+    char *end;
+    while (isspace((unsigned char)*str))
+        str++;
+    end = str + strlen(str) - 1;
+    while (end > str && isspace((unsigned char)*end))
+        end--;
+    *(end + 1) = '\0';
+    return str;
+}
+
+t_role  give_role(const char *cmd)
+{
+    if (strchr(cmd, '|'))
+        return PIPE;
+    else if (strchr(cmd, '>') && strstr(cmd, ">>"))
+        return APPEND;
+    else if (strchr(cmd, '>'))
+        return TRUNC;
+    else if (strchr(cmd, '<') && strstr(cmd, "<<"))
+        return HDOC;
+    else if (strchr(cmd, '<'))
+        return REDIR_IN;
+    else
+        return CMD;
+}
+
+void    cmd_fill(t_cmd **cmd, char **split)
+{
+    if (!split || !cmd)
+        return;
+    int i = 0;
+    while (split[i])
+    {
+        char *trimmed_cmd = trim_whitespace(split[i]);
+        t_role role = give_role(trimmed_cmd);
+        t_cmd *new_node = create_cmd_node(trimmed_cmd, role);
+        if (!new_node)
+        {
+            perror("malloc");
+            while (*cmd)
+            {
+                t_cmd *temp = *cmd;
+                *cmd = (*cmd)->next;
+                free(temp->cmd);
+                free(temp);
+            }
+            return;
+        }
+        add_cmd_to_list(cmd, new_node);
+        i++;
+    }
+}
+
+void free_cmd_list(t_cmd *head)
+{
+    t_cmd *current = head;
+    while (current)
+    {
+        t_cmd *temp = current;
+        current = current->next;
+        free(temp->cmd);
+        free(temp);
+    }
+}
+
+void print_cmd_list(t_cmd *head) {
+    t_cmd *current = head;
+    while (current) {
+        if (current->cmd) {
+            printf("Command: %s, Role: %d\n", current->cmd, current->role);
+        } else {
+            printf("Command: (NULL), Role: %d\n", current->role);
+        }
+        current = current->next;
+    }
+}
+
 int    main(int ac, char **av, char **env)
 {
     char        *line;
 	t_env		*my_env;
     t_dir       directory;
     t_stat      STATUS;
+    t_cmd       *cmd;
     char        **split;
     int         i;
 
@@ -1312,6 +1464,7 @@ int    main(int ac, char **av, char **env)
         if (check_unclosed(line) || check_meta_char(line))
         {
             directory.exit_status_ = 1;
+            free(line);
             continue;
         }
         tilda_remod(&line, directory);   
@@ -1319,55 +1472,25 @@ int    main(int ac, char **av, char **env)
         if (expanded)
         {
             free(line);
-            line = ft_strdup(expanded);
-            free(expanded);
-        }     
-        
+            line = expanded;
+        }
         split = parse_prompt_to_argv(line);
         if (line[0] == '\0' || !split || !split[0])
-        {
-            if (split)
-                free_array(split);
-            split = NULL;
             directory.exit_status_ = 0;
-            continue;
-        }
-        else if (!ft_strcmp(split[0], "exit")) // bad: breaks even in multiple args
-            handle_exit(line, split, &directory, &STATUS);
-        else if (!ft_strcmp(split[0], "echo"))
-            handle_echo(split, my_env, &directory);
-		else if (!ft_strcmp(split[0], "env"))
-			parse_env(my_env, 0, &directory);
-		else if (!ft_strcmp(split[0], "unset"))
-		{
-            directory.exit_status_ = 0;
-			if (!split[1])
-			{
-                add_history(line);
-                free(line);
-                free_array(split);
-				continue;
-            }
-			my_env = clear_node(my_env, split[1]);
-		}
-		else if (!ft_strcmp(split[0], "export"))
-            handle_export(&directory, split, my_env);
-		else if (!ft_strcmp(split[0], "pwd"))
-        {
-            printf("%s\n", directory.dir);
-            directory.exit_status_ = 0;
-        }
-        else if (!ft_strcmp(split[0], "cd"))
-            handle_cd(split, my_env, &directory);
-        else if (!ft_strcmp(split[0], "clear"))
-            write(1, "\033[2J\033[H", 8);
-            
-        free(line);
+
+        //tokenizer
+        char **temp_double = ft_split(line, '|');
+        cmd = NULL;
+        cmd_fill(&cmd, temp_double);
+        print_cmd_list(cmd);
+
+        // handle_builtins(line, split, &directory, &STATUS, my_env);
+
+        free_cmd_list(cmd);
+        if (line)
+            free(line);
         if (split)
-        {
             free_array(split);
-            split = NULL;
-        }
     }
     if (directory.dir)
     {
