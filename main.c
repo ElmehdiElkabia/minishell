@@ -25,7 +25,6 @@ Otherwise, it's part of a word; collect until a whitespace or special character 
 typedef enum e_role
 {
     CMD,      // Regular command
-    PIPE,     //  |
     REDIR_IN, //  <
     HDOC,     //  <<
     TRUNC,    //  >
@@ -769,11 +768,13 @@ char *special_check(const char *token, t_env *env, int last_exit_status)
         }
         else if ((token[i] == '"' && !in_single_quotes) 
             || (token[i] == '\'' && !in_double_quotes))
-        {
             result[j++] = token[i++];
-        }
-        else if (token[i] == '$' && (!token[i + 1] || token[i + 1] == '"'))
+        else if (token[i] == '$' && !token[i + 1])
             result[j++] = token[i++];
+        else if (token[i] == '$' 
+            && ((token[i + 1] == '\'' || in_single_quotes) 
+            || (token[i + 1] == '"' || in_double_quotes)))
+            i++;
         else if (token[i] == '$' && !in_single_quotes)
         {
             i++;
@@ -1363,9 +1364,7 @@ char    *trim_whitespace(char *str)
 
 t_role  give_role(const char *cmd)
 {
-    if (strchr(cmd, '|'))
-        return PIPE;
-    else if (strchr(cmd, '>') && strstr(cmd, ">>"))
+    if (strchr(cmd, '>') && strstr(cmd, ">>"))
         return APPEND;
     else if (strchr(cmd, '>'))
         return TRUNC;
@@ -1482,9 +1481,9 @@ int    main(int ac, char **av, char **env)
         char **temp_double = ft_split(line, '|');
         cmd = NULL;
         cmd_fill(&cmd, temp_double);
-        print_cmd_list(cmd);
+        //print_cmd_list(cmd);
 
-        // handle_builtins(line, split, &directory, &STATUS, my_env);
+        handle_builtins(line, split, &directory, &STATUS, my_env);
 
         free_cmd_list(cmd);
         if (line)
