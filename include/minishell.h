@@ -19,14 +19,25 @@
 #include "../libft/libft.h"
 #include <readline/readline.h>
 #include <readline/history.h>
+#include <sys/wait.h>
 #include <fcntl.h>
 
 typedef struct s_minishell
 {
 	char	*str;
-	char	*cmd;
 	char	**arg_cmd;
+	int     exit_status;
 }	t_minishell;
+
+typedef struct s_command
+{
+    char    **args;     // Command + arguments (e.g., ["ls", "-l", NULL])
+    char    *infile;    // Input redirection file (<)
+    char    *outfile;   // Output redirection file (>)
+    int     append;     // 1 if >> (append mode), 0 if > (overwrite)
+	int		pipe_fd[2];
+    struct s_command *next; // Next command in a pipeline (if `|` is used)
+} t_command;
 
 typedef struct s_envp
 {
@@ -45,5 +56,10 @@ void 	print_env_list(t_envp *head);
 void free_env_list(t_envp *head);
 
 char **parse_input(char *str);
+void execute_command(char *cmd, t_envp *head);
+
+int is_builtin(char **args);
+void execute_builtin(char **args, t_envp **head);
+
 
 #endif
