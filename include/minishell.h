@@ -6,7 +6,7 @@
 /*   By: eelkabia <eelkabia@student.1337.ma>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/03/08 01:40:21 by eelkabia          #+#    #+#             */
-/*   Updated: 2025/03/16 15:42:52 by eelkabia         ###   ########.fr       */
+/*   Updated: 2025/04/07 08:34:04 by eelkabia         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -61,5 +61,5 @@ void execute_command(char *cmd, t_envp *head);
 int is_builtin(char **args);
 void execute_builtin(char **args, t_envp **head);
 
-
+void	check_redirections(char *str);
 #endif

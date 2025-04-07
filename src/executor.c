@@ -124,6 +124,7 @@ void	ft_hundel(char **cmd, t_envp *envp)
 	}
 }
 
+
 void execute_command(char *cmd, t_envp *head)
 {
 	char	**cmd_argv;

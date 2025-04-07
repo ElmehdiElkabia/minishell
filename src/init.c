@@ -6,7 +6,7 @@
 /*   By: eelkabia <eelkabia@student.1337.ma>        +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2025/03/08 01:55:25 by eelkabia          #+#    #+#             */
-/*   Updated: 2025/03/16 16:43:57 by eelkabia         ###   ########.fr       */
+/*   Updated: 2025/04/07 13:46:00 by eelkabia         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -64,12 +64,44 @@ void ft_free_array(char **str)
 // 		ft_free_array(data->arg_cmd);
 // }
 
+char	*strip_redirections(char *cmd)
+{
+	// printf("cmd ==> %s\n", cmd);
+	char	**tokens = ft_split(cmd, ' ');
+	char	*new_cmd = NULL;
+	char	*tmp;
+	int		i = 0;
+
+	while (tokens[i])
+	{
+		// printf("tokens[%d] ==> %s\n", i, tokens[i]);
+		if (strcmp(tokens[i], ">") == 0 || strcmp(tokens[i], "<") == 0 || strcmp(tokens[i], ">>") == 0)
+		{
+			i += 2;
+			continue;
+		}
+		tmp = new_cmd;
+		if (!new_cmd)
+			new_cmd = ft_strdup(tokens[i]);
+		else
+		{
+			new_cmd = ft_strjoin(new_cmd, " ");
+			free(tmp);
+			tmp = new_cmd;
+			new_cmd = ft_strjoin(new_cmd, tokens[i]);
+			free(tmp);
+		}
+		i++;
+	}
+	return (new_cmd);
+}
+
 
 
 void	ft_process(char *str, t_command *cmd, int input_fd, t_envp **head)
 {
 	pid_t	id;
-
+	char	*str_cmd = strip_redirections(str);
 	id = fork();
 	if (id == 0)
 	{
@@ -84,8 +116,8 @@ void	ft_process(char *str, t_command *cmd, int input_fd, t_envp **head)
 			close(cmd->pipe_fd[1]);
 		}
 		// close(cmd->pipe_fd[0]);
-		// check_redirections(str);
-		execute_command(str, (*head));
+		check_redirections(str);
+		execute_command(str_cmd, (*head));
 	}
 }
 
