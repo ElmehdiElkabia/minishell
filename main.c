@@ -56,7 +56,7 @@ typedef struct s_dir
     char    *oldir;
     char    *dir;
     char    *home;
-    int     exit_status_;
+    long    exit_status_;
 }           t_dir;
 
 int ft_isspace(int c)
@@ -278,7 +278,7 @@ char	*ft_strdup(const char *s1)
 	int		i;
 
 	i = 0;
-	if (!s1) 
+	if (!s1)
 		return (NULL);
 	t1 = malloc((ft_strlen(s1) + 1) * sizeof(char));
 	if (!t1)
@@ -435,13 +435,13 @@ static unsigned long long	ft_helper(const char *str, int *i
 			{
                 if (*quote_type == 0)
                     *quote_type = (str[*i] == '\"') ? 1 : 2;
-                else if ((*quote_type == 1 && str[*i] == '\'') 
+                else if ((*quote_type == 1 && str[*i] == '\'')
                         || (*quote_type == 2 && str[*i] == '\"'))
                 {
                     printf("✘ mish: exit: %s: numeric argument required\n", str);
                     return (2);
                 }
-                (*i)++; // Skip quotes
+                (*i)++;
             }
 		else
 			break;
@@ -449,7 +449,7 @@ static unsigned long long	ft_helper(const char *str, int *i
 	return (*number);
 }
 
-int	ft_atoi(const char *str)
+unsigned long long	ft_atoi(const char *str)
 {
 	unsigned long long	number;
 	int					sign;
@@ -474,7 +474,7 @@ int	ft_atoi(const char *str)
     }
     if (str[i] == '\"' && !quote_flag)
             quote_flag = 1; // for ""
-        else if (str[i] == '"' && !quote_flag)
+    else if (str[i] == '"' && !quote_flag)
             quote_flag = 2; // for ''
 	if (str[i] == '-' || str[i] == '+')
 	{
@@ -484,7 +484,7 @@ int	ft_atoi(const char *str)
 	}
     if (str[i] == '\"' && !quote_flag)
             quote_flag = 1; // for ""
-        else if (str[i] == '"' && !quote_flag)
+    else if (str[i] == '"' && !quote_flag)
             quote_flag = 2; // for ''
     while (str[i] && (str[i] == '\"' || str[i] == '"'))
     {
@@ -496,7 +496,7 @@ int	ft_atoi(const char *str)
     }
 	number = ft_helper(str, &i, &number, &quote_flag);
 	if ((int)number == -1 || (int)number == 0)
-		return ((int)number);
+		return (number);
 	return (sign * number);
 }
 
@@ -518,7 +518,7 @@ void    *ft_realloc(void *ptr, size_t old_size, size_t new_size)
     if (ptr)
     {
         size_t copy_size = old_size < new_size ? old_size : new_size;
-        memcpy(new_ptr, ptr, copy_size); // 
+        memcpy(new_ptr, ptr, copy_size); //
         free(ptr);
     }
     return new_ptr;
@@ -766,13 +766,13 @@ char *special_check(const char *token, t_env *env, int last_exit_status)
                 is_first = 1;
             i++;
         }
-        else if ((token[i] == '"' && !in_single_quotes) 
+        else if ((token[i] == '"' && !in_single_quotes)
             || (token[i] == '\'' && !in_double_quotes))
             result[j++] = token[i++];
         else if (token[i] == '$' && !token[i + 1])
             result[j++] = token[i++];
-        else if (token[i] == '$' 
-            && ((token[i + 1] == '\'' || in_single_quotes) 
+        else if (token[i] == '$'
+            && ((token[i + 1] == '\'' || in_single_quotes)
             || (token[i + 1] == '"' || in_double_quotes)))
             i++;
         else if (token[i] == '$' && !in_single_quotes)
@@ -832,7 +832,7 @@ char *special_check(const char *token, t_env *env, int last_exit_status)
             else
                 result[j++] = '$';
         }
-        else if ((is_first == 2 && token[i] == '"') 
+        else if ((is_first == 2 && token[i] == '"')
             || (is_first == 1 && token[i] == '\''))
             i++;
         else
@@ -840,6 +840,23 @@ char *special_check(const char *token, t_env *env, int last_exit_status)
     }
     result[j] = '\0';
     return result;
+}
+
+int    is_all_n(char *str)
+{
+    int i;
+
+    i = 0;
+    if (str[0] != '-')
+        return (1);
+    i++;
+    while (str[i])
+    {
+        if (str[i] != 'n')
+            return (1);
+        i++;
+    }
+    return (0);
 }
 
 void    handle_echo(char **args, t_env *env, t_dir *dir)
@@ -850,7 +867,7 @@ void    handle_echo(char **args, t_env *env, t_dir *dir)
     int j;
     char quotes;
 
-    if (args[1] && !ft_strcmp(args[1], "-n"))
+    if (args[1] && (!ft_strcmp(args[1], "-n") || !is_all_n(args[1])))
     {
         line_flag = 1;
         i = 2;
@@ -964,7 +981,8 @@ void    handle_cd(char **split, t_env *my_env, t_dir *dir)
     {
         if (chdir(dir->home) == -1)
         {
-            if ((access(dir->home, W_OK | R_OK) == -1) || (access(dir->home, X_OK) == -1))
+            if ((access(dir->home, W_OK | R_OK) == -1)
+                || (access(dir->home, X_OK) == -1))
             {
                 perror("✘ cd");
                 dir->exit_status_ = 1;
@@ -1149,13 +1167,20 @@ void    handle_exit(char *line, char **split, t_dir *directory, t_stat *STATUS)
 {
     *STATUS = 1;
     directory->exit_status_ = 0;
-    if (split[2])
+    if (split[1] && split[2])
     {
         write(1, "exit\n✘ mish: exit: too many arguments\n", 41);
         directory->exit_status_ = 1;
         *STATUS = 0;
     }
-    else if ((is_num(split[1]) && !ft_atoi(split[1])) || (nested_quotes(split[1]) == 2))
+    else if (split[1] && ((is_num(split[1]) && !ft_atoi(split[1]))
+            || (nested_quotes(split[1]) == 2)))
+    {
+        printf("exit\n✘ mish: exit: %s: numeric argument required\n", split[1]);
+        directory->exit_status_ = 2;
+    }
+    else if (split[1] && (ft_strlen(split[1]) > 19 ||
+                (ft_strlen(split[1]) == 19 && ft_strcmp(split[1], "9223372036854775807") > 0)))
     {
         printf("exit\n✘ mish: exit: %s: numeric argument required\n", split[1]);
         directory->exit_status_ = 2;
@@ -1173,7 +1198,7 @@ void    handle_export(t_dir *directory, char **split, t_env *my_env)
     directory->exit_status_ = 0;
     if (!split[1])
         parse_env(my_env, -1, directory);
-    else if ((directory->exit_status_ = is_not_alpha_num_equal(split[1])) 
+    else if ((directory->exit_status_ = is_not_alpha_num_equal(split[1]))
             || (directory->exit_status_ = is_all_num(split[1])))
     {
         printf("✘ mish: export: `%s' : not a valid identifier\n", split[1]);
@@ -1275,7 +1300,7 @@ void tilda_remod(char **line, t_dir dir)
         else
         {
             new_line = ft_realloc(new_line, strlen(new_line) + 1, strlen(new_line) + strlen(tokens[i]) + 2);
-            if (!new_line) 
+            if (!new_line)
             {
                 free_array(tokens);
                 return;
@@ -1415,7 +1440,8 @@ void free_cmd_list(t_cmd *head)
     }
 }
 
-void print_cmd_list(t_cmd *head) {
+void print_cmd_list(t_cmd *head)
+{
     t_cmd *current = head;
     while (current) {
         if (current->cmd) {
@@ -1425,6 +1451,19 @@ void print_cmd_list(t_cmd *head) {
         }
         current = current->next;
     }
+}
+
+int cmd_list_size(t_cmd *head)
+{
+    int size = 0;
+    t_cmd *current = head;
+
+    while (current)
+    {
+        size++;
+        current = current->next;
+    }
+    return size;
 }
 
 int    main(int ac, char **av, char **env)
@@ -1466,7 +1505,7 @@ int    main(int ac, char **av, char **env)
             free(line);
             continue;
         }
-        tilda_remod(&line, directory);   
+        tilda_remod(&line, directory);
         char *expanded = special_check(line, my_env, directory.exit_status_);
         if (expanded)
         {
@@ -1477,15 +1516,17 @@ int    main(int ac, char **av, char **env)
         if (line[0] == '\0' || !split || !split[0])
             directory.exit_status_ = 0;
 
-        //tokenizer
         char **temp_double = ft_split(line, '|');
+        if (!temp_double)
+            perror("split");
         cmd = NULL;
-        cmd_fill(&cmd, temp_double);
+        //cmd_fill(&cmd, temp_double);
+        //free_array(temp_double);
         //print_cmd_list(cmd);
 
         handle_builtins(line, split, &directory, &STATUS, my_env);
 
-        free_cmd_list(cmd);
+        //free_cmd_list(cmd);
         if (line)
             free(line);
         if (split)
