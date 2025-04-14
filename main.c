@@ -6,21 +6,17 @@
 #include <dirent.h>
 #include <linux/limits.h>
 #include <limits.h>
+#include <signal.h>
 #include <readline/readline.h>
 #include <readline/history.h>
-
-
-//step 1, create a program that enters, keep the history no matter what and then exit
-/*step 2, Determine the token type based on the current character.
-    If it's a quote (single or double), read until the closing quote.
-    If it's a redirection operator (like >, >>, <, <<), determine the type.
-    If it's a pipe (|), add as a pipe token.
-Otherwise, it's part of a word; collect until a whitespace or special character is encountered.
-*/
 
 // echo (-n), cd, pwd, export, unset, env, exit, clear
 
 // printf must be remplaced by ft_printf
+
+// must check if file in is_builtins
+
+volatile sig_atomic_t signal_global;
 
 typedef enum e_role
 {
@@ -58,6 +54,12 @@ typedef struct s_dir
     char    *home;
     long    exit_status_;
 }           t_dir;
+
+typedef struct s_signal
+{
+    struct sigaction    sa_int;
+    struct sigaction    sa_quit;
+} t_signal;
 
 int ft_isspace(int c)
 {
@@ -771,10 +773,6 @@ char *special_check(const char *token, t_env *env, int last_exit_status)
             result[j++] = token[i++];
         else if (token[i] == '$' && !token[i + 1])
             result[j++] = token[i++];
-        else if (token[i] == '$'
-            && ((token[i + 1] == '\'' || in_single_quotes)
-            || (token[i + 1] == '"' || in_double_quotes)))
-            i++;
         else if (token[i] == '$' && !in_single_quotes)
         {
             i++;
@@ -1179,8 +1177,12 @@ void    handle_exit(char *line, char **split, t_dir *directory, t_stat *STATUS)
         printf("exit\n✘ mish: exit: %s: numeric argument required\n", split[1]);
         directory->exit_status_ = 2;
     }
-    else if (split[1] && (ft_strlen(split[1]) > 19 ||
-                (ft_strlen(split[1]) == 19 && ft_strcmp(split[1], "9223372036854775807") > 0)))
+    else if (split[1] && ( (split[1][0] != '-' && 
+        (ft_strlen(split[1]) > 19 || 
+         (ft_strlen(split[1]) == 19 && strcmp(split[1], "9223372036854775807") > 0))) ||        
+        (split[1][0] == '-' && 
+         (ft_strlen(split[1]) > 20 ||
+          (ft_strlen(split[1]) == 20 && strcmp(split[1], "-9223372036854775808") > 0)))))
     {
         printf("exit\n✘ mish: exit: %s: numeric argument required\n", split[1]);
         directory->exit_status_ = 2;
@@ -1190,6 +1192,9 @@ void    handle_exit(char *line, char **split, t_dir *directory, t_stat *STATUS)
         printf("exit\n");
         if (split[1])
             directory->exit_status_ = ft_atoi(split[1]);
+        if (split[1] && (ft_strlen(split[1]) == 20 
+                && !ft_strcmp(split[1], "-9223372036854775808")))
+            directory->exit_status_ = 0;
     }
 }
 
@@ -1387,88 +1392,51 @@ char    *trim_whitespace(char *str)
     return str;
 }
 
-t_role  give_role(const char *cmd)
+//is directory
+int is_dir(char *line, t_dir *dir)
 {
-    if (strchr(cmd, '>') && strstr(cmd, ">>"))
-        return APPEND;
-    else if (strchr(cmd, '>'))
-        return TRUNC;
-    else if (strchr(cmd, '<') && strstr(cmd, "<<"))
-        return HDOC;
-    else if (strchr(cmd, '<'))
-        return REDIR_IN;
-    else
-        return CMD;
-}
-
-void    cmd_fill(t_cmd **cmd, char **split)
-{
-    if (!split || !cmd)
-        return;
-    int i = 0;
-    while (split[i])
+    if (!access(line, X_OK))
     {
-        char *trimmed_cmd = trim_whitespace(split[i]);
-        t_role role = give_role(trimmed_cmd);
-        t_cmd *new_node = create_cmd_node(trimmed_cmd, role);
-        if (!new_node)
-        {
-            perror("malloc");
-            while (*cmd)
-            {
-                t_cmd *temp = *cmd;
-                *cmd = (*cmd)->next;
-                free(temp->cmd);
-                free(temp);
-            }
-            return;
-        }
-        add_cmd_to_list(cmd, new_node);
-        i++;
+        printf("✘ mish: %s: Is a directory\n", line);
+        dir->exit_status_ = 126;
+        return (0);
     }
+    return (1);
 }
 
-void free_cmd_list(t_cmd *head)
+static void handle_sigint(int sig)
 {
-    t_cmd *current = head;
-    while (current)
-    {
-        t_cmd *temp = current;
-        current = current->next;
-        free(temp->cmd);
-        free(temp);
-    }
+    (void)sig;
+    signal_global = SIGINT;
+    write(STDOUT_FILENO, "\n", 1);
+    rl_replace_line("", 0);
+    rl_on_new_line();
+    rl_redisplay();
 }
 
-void print_cmd_list(t_cmd *head)
+static void handle_sigquit(int sig)
 {
-    t_cmd *current = head;
-    while (current) {
-        if (current->cmd) {
-            printf("Command: %s, Role: %d\n", current->cmd, current->role);
-        } else {
-            printf("Command: (NULL), Role: %d\n", current->role);
-        }
-        current = current->next;
-    }
+    (void)sig;
+    signal_global = SIGQUIT;
 }
 
-int cmd_list_size(t_cmd *head)
+void    setup_signals(t_signal *config)
 {
-    int size = 0;
-    t_cmd *current = head;
+    config->sa_int.sa_handler = handle_sigint;
+    sigemptyset(&config->sa_int.sa_mask);
+    config->sa_int.sa_flags = 0;
+    sigaction(SIGINT, &config->sa_int, NULL);
 
-    while (current)
-    {
-        size++;
-        current = current->next;
-    }
-    return size;
+    config->sa_quit.sa_handler = handle_sigquit;
+    sigemptyset(&config->sa_quit.sa_mask);
+    config->sa_quit.sa_flags = 0;
+    sigaction(SIGQUIT, &config->sa_quit, NULL);
 }
 
 int    main(int ac, char **av, char **env)
 {
     char        *line;
+    t_signal    signal;
 	t_env		*my_env;
     t_dir       directory;
     t_stat      STATUS;
@@ -1486,11 +1454,15 @@ int    main(int ac, char **av, char **env)
     directory.exit_status_ = 0;
     STATUS = 0;
 
+    setup_signals(&signal);
 	my_env = create_env(env);
     update_directory(&directory, my_env);
     while (!STATUS)
     {
+        signal_global = 0;
         line = readline("✧ mi/sh ➤ ");
+        if (signal_global == SIGINT)
+            directory.exit_status_ = 130;
         if (!line)
 		{
             printf("exit\n");
@@ -1516,15 +1488,16 @@ int    main(int ac, char **av, char **env)
         if (line[0] == '\0' || !split || !split[0])
             directory.exit_status_ = 0;
 
-        char **temp_double = ft_split(line, '|');
-        if (!temp_double)
-            perror("split");
-        cmd = NULL;
+        // char **temp_double = ft_split(line, '|');
+        // if (!temp_double)
+        //     perror("split");
+        // cmd = NULL;
         //cmd_fill(&cmd, temp_double);
         //free_array(temp_double);
         //print_cmd_list(cmd);
 
-        handle_builtins(line, split, &directory, &STATUS, my_env);
+        else if (is_dir(split[0], &directory))
+            handle_builtins(line, split, &directory, &STATUS, my_env);
 
         //free_cmd_list(cmd);
         if (line)
