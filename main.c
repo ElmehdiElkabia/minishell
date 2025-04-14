@@ -1345,8 +1345,6 @@ void    handle_builtins(char *line, char **split, t_dir *directory, t_stat *STAT
             printf("%s\n", directory->dir);
             directory->exit_status_ = 0;
         }
-        else if (!ft_strcmp(split[0], "cd"))
-            handle_cd(split, my_env, directory);
         else if (!ft_strcmp(split[0], "clear"))
             write(1, "\033[2J\033[H", 8);
     }
@@ -1674,42 +1672,48 @@ void	ft_hundel(char **cmd, t_env *env)
 
 void execute_command(char *cmd, t_env *head, t_dir *dir, t_stat *STATUS)
 {
-	char	**cmd_argv;
-	char	*path;
-	char	**env_arr;
+    char **cmd_argv = ft_split(cmd, ' ');
+    if (!cmd_argv) {
+        dir->exit_status_ = 1;  // Memory error status
+        return;
+    }
 
-	cmd_argv = ft_split(cmd, ' ');
-	if (!cmd_argv)
-		ft_error("Memory allocation failed\n", 1);
-	if (is_builtin(cmd_argv))
-	{
-		handle_builtins(cmd, cmd_argv, dir, STATUS, head);
-		return;
-	}
-	if (!cmd_argv[0])
-	{
-		ft_cmd("Command not found: ", cmd_argv, 127);
-		return;
-	}
-	ft_hundel(cmd_argv, head);
-	path = get_path(cmd_argv[0], head);
-	if (!path)
-	{
-		ft_cmd("Command not found: ", cmd_argv, 127);
-		return;
-	}
-	env_arr = convert_env(head);
-	if (!env_arr)
-	{
-		free(path);
-		ft_error("Memory allocation failed\n", 1);
-	}
-	if (execve(path, cmd_argv, env_arr) == -1)
-	{
-		free(path);
-		ft_cmd("Execution failed: ", cmd_argv, 126);
-	}
-	free(path);
+    if (is_builtin(cmd_argv)) {
+        handle_builtins(cmd, cmd_argv, dir, STATUS, head);
+        free_array(cmd_argv);
+        return;
+    }
+
+    if (!cmd_argv[0]) {
+        dir->exit_status_ = 127;  // Command not found
+        free_array(cmd_argv);
+        return;
+    }
+
+    ft_hundel(cmd_argv, head);
+    char *path = get_path(cmd_argv[0], head);
+    if (!path) {
+        ft_cmd("Command not found: ", cmd_argv, 127);
+        dir->exit_status_ = 127;
+        free_array(cmd_argv);
+        return;
+    }
+
+    char **env_arr = convert_env(head);
+    if (!env_arr) {
+        free(path);
+        free_array(cmd_argv);
+        dir->exit_status_ = 1;
+        return;
+    }
+
+    if (execve(path, cmd_argv, env_arr) == -1) {
+        free(path);
+        free_array(env_arr);
+        ft_cmd("Execution failed: ", cmd_argv, 126);
+        dir->exit_status_ = 126;
+    }
+    free_array(cmd_argv);
 }
 
 void check_redirections(char *str)
@@ -1792,27 +1796,49 @@ typedef struct s_command
     struct s_command *next; // Next command in a pipeline (if `|` is used)
 } t_command;
 
-void	ft_process(char *str, t_command *cmd, int input_fd, t_env **head, t_dir *dir, t_stat *STATUS)
+void ft_process(char *str, int *pipe_fd, int input_fd, t_env **head, t_dir *dir, t_stat *STATUS)
 {
-	pid_t	id;
-	char	*str_cmd = strip_redirections(str);
-	id = fork();
-	if (id == 0)
-	{
-		if (input_fd != 0)
-		{
-			dup2(input_fd, 0);
-			close(input_fd);
-		}
-		if (cmd->args[1])
-		{
-			dup2(cmd->pipe_fd[1], 1);
-			close(cmd->pipe_fd[1]);
-		}
-		// close(cmd->pipe_fd[0]);
-		check_redirections(str);
-		execute_command(str_cmd, *head, dir, STATUS);
-	}
+    pid_t id;
+    char *str_cmd = strip_redirections(str);
+
+    id = fork();
+    if (id == 0) {
+        // Child process
+        if (input_fd != 0) {
+            dup2(input_fd, STDIN_FILENO);
+            close(input_fd);
+        }
+        
+        // Only redirect output if this is part of a pipeline
+        if (pipe_fd) {
+            dup2(pipe_fd[1], STDOUT_FILENO);
+            close(pipe_fd[1]);
+            close(pipe_fd[0]);
+        }
+        
+        check_redirections(str);
+        execute_command(str_cmd, *head, dir, STATUS);
+        exit(dir->exit_status_);
+    }
+    else if (id > 0) {
+        // Parent process
+        if (pipe_fd) {
+            close(pipe_fd[1]);  // Close write end
+        }
+        if (input_fd != 0) {
+            close(input_fd);
+        }
+        
+        // For single commands, wait immediately
+        if (!pipe_fd) {
+            int status;
+            waitpid(id, &status, 0);
+            if (WIFEXITED(status))
+                dir->exit_status_ = WEXITSTATUS(status);
+            update_directory(dir, *head);
+        }
+    }
+    free(str_cmd);
 }
 
 void wait_for_children(int num_children)
@@ -1830,26 +1856,73 @@ void wait_for_children(int num_children)
 
 void execve_input(char *line, char **split, t_env **head, t_dir *dir, t_stat *STATUS)
 {
-	t_command	cmd;
-	int			i;
-	int			input_fd;
+    int num_commands = 0;
+    int input_fd = 0;
+    int pipe_fd[2];
+    int *child_pids = NULL;
+    
+    split = ft_split(line, '|');
+    if (!split)
+        return;
 
-	split = ft_split(line, '|');
-	if (!split)
-		return ;
-	i = 0;
-	input_fd = 0;
-	while (split[i])
-	{
-		if (split[i + 1])
-			pipe(cmd.pipe_fd);
-		ft_process(split[i], &cmd, input_fd, head, dir, STATUS);
-		if (split[i + 1])
-			close(cmd.pipe_fd[1]);
-		input_fd = cmd.pipe_fd[0];
-		i++;
-	}
-	wait_for_children(i);
+    // Count commands
+    for (num_commands = 0; split[num_commands]; num_commands++);
+
+    child_pids = malloc(num_commands * sizeof(int));
+    if (!child_pids) {
+        free_array(split);
+        return;
+    }
+
+    // Execute each command in pipeline
+    for (int i = 0; split[i]; i++) {
+        if (i < num_commands - 1 && pipe(pipe_fd) < 0) {
+            perror("pipe");
+            dir->exit_status_ = 1;
+            break;
+        }
+
+        child_pids[i] = fork();
+        if (child_pids[i] == 0) {  // Child
+            ft_process(split[i], (i < num_commands - 1) ? pipe_fd : NULL, 
+                      input_fd, head, dir, STATUS);
+            exit(dir->exit_status_);
+        }
+        else if (child_pids[i] > 0) {  // Parent
+            if (i < num_commands - 1) {
+                close(pipe_fd[1]);  // Close write end
+                if (input_fd != 0)
+                    close(input_fd);
+                input_fd = pipe_fd[0];  // Next command reads from here
+            }
+        }
+        else {
+            perror("fork");
+            dir->exit_status_ = 1;
+            break;
+        }
+    }
+
+    // Wait for all children and get final status
+    for (int i = 0; i < num_commands; i++) {
+        if (child_pids[i] > 0) {
+            int status;
+            waitpid(child_pids[i], &status, 0);
+            if (i == num_commands - 1) {  // Last command determines status
+                if (WIFEXITED(status))
+                    dir->exit_status_ = WEXITSTATUS(status);
+                else if (WIFSIGNALED(status))
+                    dir->exit_status_ = 128 + WTERMSIG(status);
+            }
+        }
+    }
+
+    // Clean up
+    if (input_fd != 0)
+        close(input_fd);
+    free(child_pids);
+    free_array(split);
+    update_directory(dir, *head);  // Update after all commands complete
 }
 
 
@@ -1914,7 +1987,10 @@ int    main(int ac, char **av, char **env)
             directory.exit_status_ = 0;
 
         // merging ...
-        execve_input(line, split, &my_env, &directory, &STATUS);
+        if (!ft_strcmp(split[0], "cd"))
+            handle_cd(split, my_env, &directory);
+        else
+            execve_input(line, split, &my_env, &directory, &STATUS);
 
 
         // else if (is_dir(split[0], &directory))
