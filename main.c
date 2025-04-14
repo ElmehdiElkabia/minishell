@@ -7,6 +7,7 @@
 #include <linux/limits.h>
 #include <limits.h>
 #include <signal.h>
+#include <fcntl.h>
 #include <readline/readline.h>
 #include <readline/history.h>
 
@@ -1433,6 +1434,429 @@ void    setup_signals(t_signal *config)
     sigaction(SIGQUIT, &config->sa_quit, NULL);
 }
 
+
+
+
+
+
+
+
+
+void	ft_putstr_fd(char *s, int fd)
+{
+	int	i;
+
+	if (!s)
+		return ;
+	i = 0;
+	while (s[i])
+	{
+		write(fd, &s[i], 1);
+		i++;
+	}
+}
+
+void	ft_putendl_fd(char *s, int fd)
+{
+	int	i;
+
+	if (!s)
+		return ;
+	i = 0;
+	while (s[i])
+	{
+		write(fd, &s[i], 1);
+		i++;
+	}
+	write (fd, "\n", 1);
+}
+
+char	*ft_strjoin(char const *s1, char const *s2)
+{
+	char	*str;
+	size_t	i;
+	size_t	j;
+
+	if (!s1 || !s2)
+		return (NULL);
+	i = 0;
+	j = 0;
+	str = (char *)malloc((ft_strlen(s1) + ft_strlen(s2) + 1) * sizeof(char));
+	if (!str)
+		return (NULL);
+	while (s1[i])
+		str[j++] = s1[i++];
+	i = 0;
+	while (s2[i])
+		str[j++] = s2[i++];
+	str[j] = '\0';
+	return (str);
+}
+
+char	*ft_strchr(const char *s, int c)
+{
+	size_t	i;
+
+	if (!s)
+		return (NULL);
+	i = 0;
+	while (s[i])
+	{
+		if (s[i] == (char)c)
+			return ((char *)s + i);
+		i++;
+	}
+	if ((char)c == '\0')
+		return ((char *)s + i);
+	return (0);
+}
+
+int	ft_strncmp(const char *s1, const char *s2, size_t n)
+{
+	size_t	i;
+
+	i = 0;
+	while ((s1[i] || s2[i]) && i < n)
+	{
+		if ((unsigned char) s1[i] != (unsigned char) s2[i])
+			return ((unsigned char)s1[i] - (unsigned char)s2[i]);
+		i++;
+	}
+	return (0);
+}
+
+
+int is_builtin(char **args)
+{
+    if (!args[0])
+        return 0;
+    if (!ft_strncmp(args[0], "env", 4)) return 1;
+    if (!ft_strncmp(args[0], "pwd", 4)) return 1;
+    if (!ft_strncmp(args[0], "cd", 3)) return 1;
+    if (!ft_strncmp(args[0], "export", 7)) return 1;
+    if (!ft_strncmp(args[0], "unset", 6)) return 1;
+    if (!ft_strncmp(args[0], "echo", 5)) return 1;
+    if (!ft_strncmp(args[0], "exit", 5)) return 1;
+    return 0;
+}
+
+char *find_value_env(char *key, t_env **head)
+{
+	t_env *temp;
+
+	temp = *head;
+	while (temp != NULL)
+	{
+		if (ft_strlen(key) == ft_strlen(temp->var) \
+		&& ft_strncmp(key, temp->var, ft_strlen(key)) == 0)
+			return temp->value;
+		temp = temp->next;
+	}
+	return (NULL);
+}
+
+void	ft_error(char *str, int n)
+{
+	ft_putstr_fd(str, 2);
+	exit(n);
+}
+
+void	ft_perror(char *str, int n)
+{
+	perror(str);
+	exit(n);
+}
+
+void	ft_cmd(char *str, char **cmd, int n)
+{
+	if (!cmd || !*cmd)
+	{
+		ft_putendl_fd(str, 2);
+		exit(n);
+	}
+	ft_putstr_fd(str, 2);
+	ft_putendl_fd(cmd[0], 2);
+	exit(n);
+}
+
+char	*get_full_path(t_env *head)
+{
+	return find_value_env("PATH", &head);
+}
+char	*path_join(char *cmd, char *part_path)
+{
+	char	*path;
+	char	*tmp;
+
+	tmp = ft_strjoin(part_path, "/");
+	if (!tmp)
+		return (NULL);
+	path = ft_strjoin(tmp, cmd);
+	free(tmp);
+	return (path);
+}
+
+char	*get_path(char *cmd, t_env *env)
+{
+	char	**path_argv;
+	char	*path_dir;
+	char	*path;
+	int		i;
+
+	path_dir = get_full_path(env);
+	if (!path_dir)
+		return (NULL);
+	path_argv = ft_split(path_dir, ':');
+	if (!path_argv)
+		return (NULL);
+	i = 0;
+	while (path_argv[i])
+	{
+		path = path_join(cmd, path_argv[i]);
+		if (!path)
+		{
+			return (NULL);
+		}
+		if (access(path, F_OK) == 0)
+		{
+			return (path);
+		}
+		free(path);
+		i++;
+	}
+	return (NULL);
+}
+
+char	**convert_env(t_env *env)
+{
+	int		count = 0;
+	t_env	*tmp = env;
+	char	**env_arr;
+
+	while (tmp)
+	{
+		count++;
+		tmp = tmp->next;
+	}
+	env_arr = malloc((count + 1) * sizeof(char *));
+	if (!env_arr)
+		return (NULL);
+	tmp = env;
+	for (int i = 0; i < count; i++)
+	{
+		env_arr[i] = malloc(strlen(tmp->var) + strlen(tmp->value) + 2);
+		if (!env_arr[i])
+		{
+			return (NULL);
+		}
+		sprintf(env_arr[i], "%s=%s", tmp->var, tmp->value);
+		tmp = tmp->next;
+	}
+	env_arr[count] = NULL;
+	return (env_arr);
+}
+
+void	ft_hundel(char **cmd, t_env *env)
+{
+	char **env_arr = convert_env(env);
+	if (!env_arr)
+		ft_perror("Memory allocation failed", 1);
+
+	if (ft_strchr(cmd[0], '/') != NULL)
+	{
+		if (execve(cmd[0], cmd, env_arr) == -1)
+		{
+			ft_perror("Command execution failed", 126);
+		}
+	}
+}
+
+
+void execute_command(char *cmd, t_env *head, t_dir *dir, t_stat *STATUS)
+{
+	char	**cmd_argv;
+	char	*path;
+	char	**env_arr;
+
+	cmd_argv = ft_split(cmd, ' ');
+	if (!cmd_argv)
+		ft_error("Memory allocation failed\n", 1);
+	if (is_builtin(cmd_argv))
+	{
+		handle_builtins(cmd, cmd_argv, dir, STATUS, head);
+		return;
+	}
+	if (!cmd_argv[0])
+	{
+		ft_cmd("Command not found: ", cmd_argv, 127);
+		return;
+	}
+	ft_hundel(cmd_argv, head);
+	path = get_path(cmd_argv[0], head);
+	if (!path)
+	{
+		ft_cmd("Command not found: ", cmd_argv, 127);
+		return;
+	}
+	env_arr = convert_env(head);
+	if (!env_arr)
+	{
+		free(path);
+		ft_error("Memory allocation failed\n", 1);
+	}
+	if (execve(path, cmd_argv, env_arr) == -1)
+	{
+		free(path);
+		ft_cmd("Execution failed: ", cmd_argv, 126);
+	}
+	free(path);
+}
+
+void check_redirections(char *str)
+{
+	int i;
+	int fd;
+	char **token;
+
+	token = ft_split(str, ' ');
+	i = 0;
+	while (token[i])
+	{
+		if (strncmp(token[i], ">", 1) == 0 && token[i][1] == '\0' && token[i + 1])
+		{
+			fd = open(token[i + 1], O_CREAT | O_WRONLY | O_TRUNC, 0644);
+			if (fd < 0)
+				perror("open");
+			else
+				dup2(fd, STDOUT_FILENO);
+		}
+		else if (strncmp(token[i], ">>", 2) == 0 && token[i][2] == '\0' && token[i + 1])
+		{
+			fd = open(token[i + 1], O_CREAT | O_WRONLY | O_APPEND, 0644);
+			if (fd < 0)
+				perror("open");
+			else
+				dup2(fd, STDOUT_FILENO);
+		}
+		else if (strncmp(token[i], "<", 1) == 0 && token[i][1] == '\0' && token[i + 1])
+		{
+			fd = open(token[i + 1], O_RDONLY);
+			if (fd < 0)
+				perror("open");
+			else
+				dup2(fd, STDIN_FILENO);
+		}
+		i++;
+	}
+}
+
+char	*strip_redirections(char *cmd)
+{
+	// printf("cmd ==> %s\n", cmd);
+	char	**tokens = ft_split(cmd, ' ');
+	char	*new_cmd = NULL;
+	char	*tmp;
+	int		i = 0;
+
+	while (tokens[i])
+	{
+		// printf("tokens[%d] ==> %s\n", i, tokens[i]);
+		if (strcmp(tokens[i], ">") == 0 || strcmp(tokens[i], "<") == 0 || strcmp(tokens[i], ">>") == 0)
+		{
+			i += 2;
+			continue;
+		}
+		tmp = new_cmd;
+		if (!new_cmd)
+			new_cmd = ft_strdup(tokens[i]);
+		else
+		{
+			new_cmd = ft_strjoin(new_cmd, " ");
+			free(tmp);
+			tmp = new_cmd;
+			new_cmd = ft_strjoin(new_cmd, tokens[i]);
+			free(tmp);
+		}
+		i++;
+	}
+	return (new_cmd);
+}
+
+typedef struct s_command
+{
+    char    **args;     // Command + arguments (e.g., ["ls", "-l", NULL])
+    char    *infile;    // Input redirection file (<)
+    char    *outfile;   // Output redirection file (>)
+    int     append;     // 1 if >> (append mode), 0 if > (overwrite)
+	int		pipe_fd[2];
+    struct s_command *next; // Next command in a pipeline (if `|` is used)
+} t_command;
+
+void	ft_process(char *str, t_command *cmd, int input_fd, t_env **head, t_dir *dir, t_stat *STATUS)
+{
+	pid_t	id;
+	char	*str_cmd = strip_redirections(str);
+	id = fork();
+	if (id == 0)
+	{
+		if (input_fd != 0)
+		{
+			dup2(input_fd, 0);
+			close(input_fd);
+		}
+		if (cmd->args[1])
+		{
+			dup2(cmd->pipe_fd[1], 1);
+			close(cmd->pipe_fd[1]);
+		}
+		// close(cmd->pipe_fd[0]);
+		check_redirections(str);
+		execute_command(str_cmd, *head, dir, STATUS);
+	}
+}
+
+void wait_for_children(int num_children)
+{
+	int	status;
+	int	i;
+
+	i = 0;
+	while (i < num_children)
+	{
+		wait(&status); // must use waitpid
+		i++;
+	}
+}
+
+void execve_input(char *line, char **split, t_env **head, t_dir *dir, t_stat *STATUS)
+{
+	t_command	cmd;
+	int			i;
+	int			input_fd;
+
+	split = ft_split(line, '|');
+	if (!split)
+		return ;
+	i = 0;
+	input_fd = 0;
+	while (split[i])
+	{
+		if (split[i + 1])
+			pipe(cmd.pipe_fd);
+		ft_process(split[i], &cmd, input_fd, head, dir, STATUS);
+		if (split[i + 1])
+			close(cmd.pipe_fd[1]);
+		input_fd = cmd.pipe_fd[0];
+		i++;
+	}
+	wait_for_children(i);
+}
+
+
+
+
+
+
 int    main(int ac, char **av, char **env)
 {
     char        *line;
@@ -1443,6 +1867,7 @@ int    main(int ac, char **av, char **env)
     t_cmd       *cmd;
     char        **split;
     int         i;
+
 
     (void)ac;
     (void)av;
@@ -1488,18 +1913,14 @@ int    main(int ac, char **av, char **env)
         if (line[0] == '\0' || !split || !split[0])
             directory.exit_status_ = 0;
 
-        // char **temp_double = ft_split(line, '|');
-        // if (!temp_double)
-        //     perror("split");
-        // cmd = NULL;
-        //cmd_fill(&cmd, temp_double);
-        //free_array(temp_double);
-        //print_cmd_list(cmd);
+        // merging ...
+        execve_input(line, split, &my_env, &directory, &STATUS);
 
-        else if (is_dir(split[0], &directory))
-            handle_builtins(line, split, &directory, &STATUS, my_env);
 
-        //free_cmd_list(cmd);
+        // else if (is_dir(split[0], &directory))
+        //     handle_builtins(line, split, &directory, &STATUS, my_env);
+
+        
         if (line)
             free(line);
         if (split)
